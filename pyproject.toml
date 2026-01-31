@@ -1,0 +1,17 @@
+[project]
+name = "pg-cerbos"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "David Hughes", email = "dhughes@enterprise-knowledge.com" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+pg-cerbos = "pg_cerbos:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

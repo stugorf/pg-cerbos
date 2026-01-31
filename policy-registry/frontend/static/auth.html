@@ -1,0 +1,3176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>UES MVP - Authentication</title>
+    <link rel="stylesheet" href="auth-styles.css?v=1.0.5">
+    <script>window.API_BASE = (new URL(document.location)).searchParams.get("api") || "http://localhost:8082";</script>
+    <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Login Form -->
+        <div id="login-section" class="auth-section">
+            <div class="auth-card">
+                <!-- EK Logo -->
+                <div class="ek-logo">
+                    <img src="images/EKgo.png" alt="EK Logo" class="logo-image">
+                </div>
+                <h1>UES MVP Authentication</h1>
+                <form id="login-form" class="auth-form">
+                    <div class="form-group">
+                        <label for="email">Email:</label>
+                        <input type="email" id="email" name="email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="password">Password:</label>
+                        <input type="password" id="password" name="password" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Login</button>
+                </form>
+                <div id="login-error" class="error-message" style="display: none;"></div>
+            </div>
+        </div>
+
+        <!-- Main Dashboard (after login) -->
+        <div id="dashboard-section" class="dashboard-section" style="display: none;">
+            <header class="dashboard-header">
+                <!-- EK Logo in Dashboard Header -->
+                <div class="ek-logo-header">
+                    <img src="images/EKgo.png" alt="EK Logo" class="logo-image-header">
+                </div>
+                <h1>UES MVP Dashboard</h1>
+                <div class="user-info">
+                    <span id="user-email"></span>
+                    <span id="user-roles"></span>
+                    <button id="logout-btn" class="btn btn-secondary">Logout</button>
+                </div>
+                <div class="version-info">
+                    <span class="version-badge" id="header-version">v1.0.5</span>
+                    <span class="build-info" id="header-build">Build: 20260126_1200</span>
+                </div>
+            </header>
+
+            <!-- Navigation Tabs -->
+            <nav class="nav-tabs">
+                <button class="tab-btn active" data-tab="sql-query">SQL Query</button>
+                <button class="tab-btn" data-tab="policies">Policy Management</button>
+                <button class="tab-btn" data-tab="cerbos-logs">Cerbos Logs</button>
+                <button class="tab-btn" data-tab="users">User Management</button>
+                <button class="tab-btn" data-tab="roles">Role Management</button>
+                <button class="tab-btn" data-tab="permissions">Permission Management</button>
+            </nav>
+
+            <!-- Tab Content -->
+            <div class="tab-content">
+                <!-- SQL Query Tab -->
+                <div id="sql-query-tab" class="tab-pane active">
+                    <div class="sql-query-interface">
+                        <div class="query-header">
+                            <h3>SQL Query Interface</h3>
+                            <p>Submit SQL queries to access data based on your permissions</p>
+                        </div>
+                        
+                        <div class="query-form">
+                            <div class="form-group">
+                                <label for="sql-query-input">SQL Query:</label>
+                                <textarea id="sql-query-input" placeholder="Enter your SQL query here...&#10;Example: SELECT * FROM postgres.public.person LIMIT 5&#10;Example: SELECT * FROM iceberg.demo.employee_performance" rows="6"></textarea>
+                                <div id="semicolon-warning" class="semicolon-warning" style="display: none;">
+                                    ⚠️ <strong>Semicolon Warning:</strong> Semicolons at the end of SQL queries are not recommended in Trino. Consider removing them for better compatibility.
+                                </div>
+                            </div>
+                            <div class="query-controls">
+                                <button id="execute-query-btn" class="btn btn-primary">Execute Query</button>
+                                <button id="clear-query-btn" class="btn btn-secondary">Clear</button>
+                                <button id="save-query-btn" class="btn btn-secondary">Save Query</button>
+                                <button id="load-saved-queries-btn" class="btn btn-secondary">Load Saved</button>
+                            </div>
+                        </div>
+
+                        <div class="query-results">
+                            <div class="results-header">
+                                <h4>Query Results</h4>
+                                <div class="results-info">
+                                    <span id="query-status"></span>
+                                    <span id="query-time"></span>
+                                    <span id="result-count"></span>
+                                </div>
+                            </div>
+                            <div id="query-output" class="query-output">
+                                <div class="no-query-message">
+                                    <p>Enter a SQL query above and click "Execute Query" to see results</p>
+                                                                            <p class="query-tips">
+                                            <strong>Query Tips:</strong><br>
+                                            • Use <code>postgres.public.person</code> for employee data (names, SSNs, job titles)<br>
+                                            • Use <code>iceberg.demo.employee_performance</code> for performance metrics<br>
+                                            • Try JOIN queries to combine both data sources<br>
+                                            • Your access level depends on your role and permissions
+                                        </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="query-history">
+                            <h4>Recent Queries</h4>
+                            <div class="history-controls">
+                                <button onclick="loadQueryHistory()" class="btn btn-secondary">Refresh History</button>
+                                <button onclick="clearQueryHistory()" class="btn btn-secondary">Clear History</button>
+                            </div>
+                            <div id="query-history-list" class="query-history-list">
+                                <!-- Query history will be populated here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Policy Editor Tab -->
+                <div id="policies-tab" class="tab-pane">
+                    <div class="policy-editor">
+                        <div class="editor-controls">
+                            <button id="create-cerbos-policy-btn" class="btn btn-primary">Create New Policy</button>
+                            <button id="refresh-cerbos-policies" class="btn btn-secondary">Refresh Policies</button>
+                        </div>
+                        <div id="cerbos-policy-output" class="policies-list-container">
+                            <div class="loading-message">Loading Cerbos policies...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- User Management Tab -->
+                <div id="users-tab" class="tab-pane">
+                    <div class="admin-section">
+                        <h3>User Management</h3>
+                        <button id="add-user-btn" class="btn btn-primary">Add New User</button>
+                        <div id="users-list" class="data-list"></div>
+                    </div>
+                </div>
+
+                <!-- Role Management Tab -->
+                <div id="roles-tab" class="tab-pane">
+                    <div class="admin-section">
+                        <h3>Role Management</h3>
+                        <button id="add-role-btn" class="btn btn-primary">Add New Role</button>
+                        <div id="roles-list" class="data-list"></div>
+                    </div>
+                </div>
+
+                <!-- Cerbos Logs Tab -->
+                <div id="cerbos-logs-tab" class="tab-pane">
+                    <div class="cerbos-logs-section">
+                        <div class="logs-header">
+                            <h3>Cerbos Authorization Logs</h3>
+                            <p class="logs-description">
+                                This tab demonstrates <strong>Authorization as a Service</strong> and <strong>Policy as Code</strong>.
+                                Cerbos makes authorization decisions based on YAML policies stored in version control.
+                            </p>
+                        </div>
+                        <div class="logs-controls">
+                            <button id="refresh-cerbos-logs" class="btn btn-primary">Refresh Logs</button>
+                            <button id="clear-cerbos-logs" class="btn btn-secondary">Clear Display</button>
+                            <label class="auto-refresh-label">
+                                <input type="checkbox" id="auto-refresh-logs" checked> Auto-refresh (5s)
+                            </label>
+                        </div>
+                        <div class="logs-info">
+                            <div class="info-card">
+                                <h4>🔐 Authorization as a Service</h4>
+                                <p>Cerbos runs as a dedicated service, making authorization decisions independently of your application code.</p>
+                            </div>
+                            <div class="info-card">
+                                <h4>📝 Policy as Code</h4>
+                                <p>Policies are defined in YAML files, version-controlled, and automatically reloaded when changed.</p>
+                            </div>
+                            <div class="info-card">
+                                <h4>⚡ Real-time Decisions</h4>
+                                <p>Each query triggers an authorization check, with decisions logged for audit and debugging.</p>
+                            </div>
+                        </div>
+                        <div id="cerbos-logs-output" class="logs-output">
+                            <div class="loading-message">Loading Cerbos logs...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Permission Management Tab -->
+                <div id="permissions-tab" class="tab-pane">
+                    <div class="admin-section">
+                        <h3>Permission Management</h3>
+                        <button id="add-permission-btn" class="btn btn-primary">Add New Permission</button>
+                        <div id="permissions-list" class="data-list"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Version Footer -->
+        <div class="version-footer">
+            <div class="footer-content">
+                <span class="footer-version" id="footer-version">UES MVP v1.0.5</span>
+                <span class="footer-build" id="footer-build">Build 20260126_1200</span>
+                <span class="footer-timestamp" id="footer-timestamp"></span>
+            </div>
+        </div>
+
+        <!-- Modals -->
+        <div id="modal-overlay" class="modal-overlay" style="display: none;">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3 id="modal-title">Modal Title</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body" id="modal-body">
+                    <!-- Modal content will be inserted here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Policy View Modal -->
+        <div id="policyModal" class="modal-overlay" style="display: none;">
+            <div class="modal">
+                <div class="modal-header">
+                    <h3>View Policy</h3>
+                    <button class="modal-close" onclick="closePolicyModal()">&times;</button>
+                </div>
+                <div class="modal-body" id="policyModalContent">
+                    <!-- Policy content will be inserted here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Cerbos Policy Editor Modal -->
+        <div id="cerbos-policy-modal" class="modal-overlay" style="display: none;">
+            <div class="modal modal-large">
+                <div class="modal-header">
+                    <h3 id="cerbos-modal-title">Edit Cerbos Policy</h3>
+                    <button class="modal-close" onclick="closeCerbosPolicyModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="policy-form">
+                        <div class="form-group">
+                            <label for="cerbos-modal-policy-path">Policy Path:</label>
+                            <input type="text" id="cerbos-modal-policy-path" placeholder="e.g. resource_policies/postgres.yaml" />
+                        </div>
+                        <div class="form-group">
+                            <label for="cerbos-modal-policy-type">Policy Type:</label>
+                            <select id="cerbos-modal-policy-type">
+                                <option value="resource">Resource Policy</option>
+                                <option value="principal">Principal Policy</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="cerbos-modal-resource-kind">Resource Kind (for Resource Policies):</label>
+                            <select id="cerbos-modal-resource-kind">
+                                <option value="postgres">PostgreSQL</option>
+                                <option value="iceberg">Iceberg</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Policy Content (YAML):</label>
+                            <div id="cerbos-policy-editor-container" style="height: 400px; border: 1px solid #ddd; margin-top: 8px;"></div>
+                        </div>
+                        <div id="cerbos-policy-validation-output" class="validation-output"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="cerbos-validate-policy-btn" class="btn btn-secondary">Validate</button>
+                    <button id="cerbos-save-policy-btn" class="btn btn-primary">Save Policy</button>
+                    <button onclick="closeCerbosPolicyModal()" class="btn btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+                <script>
+        // Configuration
+        const API_BASE = (new URL(document.location)).searchParams.get("api") || "http://localhost:8082";
+        const ENVOY_URL = "http://localhost:8081"; // Legacy - not used anymore
+        const JSON_API_URL = "http://localhost:8082"; // New JSON API endpoint
+        const VERSION = "1.0.5"; // Cache busting version - Added Cerbos Logs viewer and gRPC client
+        const TIMESTAMP = Date.now(); // Force cache refresh
+        const BUILD_ID = "20260126_1200"; // Build date: Jan 26, 2026 - Cerbos authorization logging feature
+            
+            console.log('UES MVP Frontend loaded with version:', VERSION);
+            console.log('JSON_API_URL:', JSON_API_URL);
+            console.log('ENVOY_URL (legacy):', ENVOY_URL);
+            console.log('Script loaded at:', new Date().toISOString());
+            console.log('Build ID:', BUILD_ID);
+            console.log('Cache busting timestamp:', TIMESTAMP);
+        let currentUser = null;
+        let authToken = null;
+        let queryHistory = [];
+        let savedQueries = [];
+
+        // DOM Elements
+        const loginSection = document.getElementById('login-section');
+        const dashboardSection = document.getElementById('dashboard-section');
+        const loginForm = document.getElementById('login-form');
+        const loginError = document.getElementById('login-error');
+        const logoutBtn = document.getElementById('logout-btn');
+        const userEmail = document.getElementById('user-email');
+        const userRoles = document.getElementById('user-roles');
+
+        // Event Listeners
+        loginForm.addEventListener('submit', handleLogin);
+        logoutBtn.addEventListener('click', handleLogout);
+
+        // Check if user is already logged in
+        checkAuthStatus();
+
+        // Update version information
+        updateVersionInfo();
+
+        function updateVersionInfo() {
+            // Update header version
+            const headerVersion = document.getElementById('header-version');
+            const headerBuild = document.getElementById('header-build');
+            if (headerVersion) headerVersion.textContent = `v${VERSION}`;
+            if (headerBuild) headerBuild.textContent = `Build: ${BUILD_ID}`;
+            
+            // Update footer version
+            const footerVersion = document.getElementById('footer-version');
+            const footerBuild = document.getElementById('footer-build');
+            const footerTimestamp = document.getElementById('footer-timestamp');
+            if (footerVersion) footerVersion.textContent = `UES MVP v${VERSION}`;
+            if (footerBuild) footerBuild.textContent = `Build ${BUILD_ID}`;
+            if (footerTimestamp) footerTimestamp.textContent = new Date().toLocaleDateString();
+        }
+
+        async function checkAuthStatus() {
+            const token = localStorage.getItem('authToken');
+            if (token) {
+                try {
+                    const response = await fetch(`${API_BASE}/auth/me`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+                    if (response.ok) {
+                        const user = await response.json();
+                        authToken = token;
+                        currentUser = user;
+                        showDashboard();
+                    } else {
+                        localStorage.removeItem('authToken');
+                    }
+                } catch (error) {
+                    localStorage.removeItem('authToken');
+                }
+            }
+        }
+
+        async function handleLogin(event) {
+            event.preventDefault();
+            const formData = new FormData(loginForm);
+            const email = formData.get('email');
+            const password = formData.get('password');
+
+            try {
+                const response = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ email, password })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    authToken = data.access_token;
+                    currentUser = data.user;
+                    localStorage.setItem('authToken', authToken);
+                    showDashboard();
+                    loginError.style.display = 'none';
+                } else {
+                    const errorData = await response.json();
+                    loginError.textContent = errorData.detail || 'Login failed';
+                    loginError.style.display = 'block';
+                }
+            } catch (error) {
+                loginError.textContent = 'Network error. Please try again.';
+                loginError.style.display = 'block';
+            }
+        }
+
+        function handleLogout() {
+            authToken = null;
+            currentUser = null;
+            localStorage.removeItem('authToken');
+            showLogin();
+        }
+
+        function showLogin() {
+            loginSection.style.display = 'block';
+            dashboardSection.style.display = 'none';
+            loginForm.reset();
+        }
+
+        function showDashboard() {
+            console.log('showDashboard called');
+            loginSection.style.display = 'none';
+            dashboardSection.style.display = 'block';
+            userEmail.textContent = currentUser.email;
+            userRoles.textContent = `Roles: ${currentUser.roles.join(', ')}`;
+            
+            console.log('Initializing dashboard components...');
+            // Initialize dashboard components
+            initializeSQLQueryInterface();
+            initializePolicyEditor();
+            initializeTabs();
+            if (currentUser.roles.includes('admin')) {
+                console.log('User is admin, initializing admin features...');
+                initializeAdminFeatures();
+            }
+            console.log('Dashboard initialization complete');
+            
+
+        }
+        
+
+        
+
+
+        function initializeSQLQueryInterface() {
+            const executeBtn = document.getElementById('execute-query-btn');
+            const clearBtn = document.getElementById('clear-query-btn');
+            const saveBtn = document.getElementById('save-query-btn');
+            const loadBtn = document.getElementById('load-saved-queries-btn');
+            const queryInput = document.getElementById('sql-query-input');
+
+            executeBtn.addEventListener('click', executeQuery);
+            clearBtn.addEventListener('click', clearQuery);
+            saveBtn.addEventListener('click', saveQuery);
+            loadBtn.addEventListener('click', showSavedQueries);
+
+            // Add semicolon warning functionality
+            queryInput.addEventListener('input', checkForSemicolon);
+
+            // Load saved queries from localStorage
+            loadSavedQueriesFromStorage();
+        }
+
+        function checkForSemicolon() {
+            const queryInput = document.getElementById('sql-query-input');
+            const semicolonWarning = document.getElementById('semicolon-warning');
+            const query = queryInput.value;
+            
+            if (query.includes(';')) {
+                semicolonWarning.style.display = 'flex';
+            } else {
+                semicolonWarning.style.display = 'none';
+            }
+        }
+
+        async function executeQuery() {
+            console.log('executeQuery function called');
+            
+            const queryInput = document.getElementById('sql-query-input');
+            const query = queryInput.value.trim();
+            const queryOutput = document.getElementById('query-output');
+            const queryStatus = document.getElementById('query-status');
+            const queryTime = document.getElementById('query-time');
+            const resultCount = document.getElementById('result-count');
+
+            if (!query) {
+                showQueryError('Please enter a SQL query');
+                return;
+            }
+
+            // Check for semicolon and show warning
+            if (query.includes(';')) {
+                const warningMessage = '⚠️ Warning: Semicolons at the end of SQL queries are not recommended in Trino. The query will still execute, but consider removing the semicolon for better compatibility.';
+                alert(warningMessage);
+                console.warn('Semicolon detected in query:', query);
+            }
+
+            // Show loading state
+            queryStatus.textContent = 'Executing...';
+            queryStatus.className = 'status-executing';
+            queryOutput.innerHTML = '<div class="loading">Executing query...</div>';
+
+            try {
+                const startTime = Date.now();
+                
+                // Use the new JSON API endpoint
+                const requestBody = {
+                    query: query,
+                    catalog: 'postgres', // Default catalog
+                    schema: 'public'     // Default schema
+                };
+
+                console.log('Executing query with JSON API:', {
+                    url: `${JSON_API_URL}/query`,
+                    requestBody: requestBody,
+                    authToken: authToken ? 'Present' : 'Missing'
+                });
+
+                const response = await fetch(`${JSON_API_URL}/query`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+
+                const endTime = Date.now();
+                const executionTime = endTime - startTime;
+
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    // Add to query history
+                    addToQueryHistory(query, 'success', executionTime);
+                    
+                    // Check if we have immediate results from Trino client
+                    if (data.success && data.data && data.columns) {
+                        // Results are already available - display them immediately
+                        
+                        // Clear any previous output to ensure no leftover buttons
+                        queryOutput.innerHTML = '';
+                        
+                        displayQueryData(data.data, data.columns, data.stats, data.status);
+                        
+                        // Update status
+                        queryStatus.textContent = 'Completed';
+                        queryStatus.className = 'status-success';
+                        queryTime.textContent = `Time: ${executionTime}ms`;
+                        
+                        // Update result count
+                        if (data.data && Array.isArray(data.data)) {
+                            resultCount.textContent = `Results: ${data.data.length} rows`;
+                        }
+                        
+                        return; // Exit early to prevent any other code from running
+                    } else if (data.query_id) {
+                        // Fallback to the old approach if needed
+                        console.log('No immediate results, using query ID approach');
+                        displayQueryResults(data, executionTime);
+                        
+                        // Start automatic result retrieval and display
+                        await autoRetrieveAndDisplayResults(data.query_id);
+                        
+                        // Update status
+                        queryStatus.textContent = 'Success';
+                        queryStatus.className = 'status-success';
+                        queryTime.textContent = `Time: ${executionTime}ms`;
+                    } else {
+                        // No results available
+                        displayQueryResults(data, executionTime);
+                        queryStatus.textContent = 'No results';
+                        queryStatus.className = 'status-warning';
+                        queryTime.textContent = `Time: ${executionTime}ms`;
+                    }
+                    
+                } else {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+            } catch (error) {
+                console.error('Query execution error:', error);
+                
+                // Add to query history
+                addToQueryHistory(query, 'error', 0);
+                
+                // Display error
+                showQueryError(`Query failed: ${error.message}`);
+                
+                // Update status
+                queryStatus.textContent = 'Failed';
+                queryStatus.className = 'status-error';
+                queryTime.textContent = '';
+            }
+        }
+
+        function displayQueryResults(data, executionTime) {
+            const queryOutput = document.getElementById('query-output');
+            const resultCount = document.getElementById('result-count');
+
+            if (data.error) {
+                queryOutput.innerHTML = `<div class="query-error">Error: ${data.error.message || data.error}</div>`;
+                resultCount.textContent = '';
+                return;
+            }
+
+            // Handle the new JSON API response format
+            if (data.success === false) {
+                queryOutput.innerHTML = `<div class="query-error">Error: ${data.error || 'Unknown error'}</div>`;
+                resultCount.textContent = '';
+                return;
+            }
+
+            if (data.success === true) {
+                // Check if we have immediate results from Trino client
+                if (data.data && data.columns) {
+                    // We have immediate results - display them directly
+                    console.log('Displaying immediate results from Trino client');
+                    displayQueryData(data.data, data.columns, data.stats, data.status);
+                    resultCount.textContent = `Results: ${data.data.length} rows`;
+                    return;
+                }
+
+                // Query was submitted successfully but no immediate results - show status
+                let html = '<div class="query-success">';
+                html += '<h5>Query Status:</h5>';
+                html += `<p><strong>Status:</strong> <span class="status-${data.status?.toLowerCase()}">${data.status || 'Unknown'}</span></p>`;
+                html += `<p><strong>Query ID:</strong> ${data.query_id || 'N/A'}</p>`;
+                html += `<p><strong>Message:</strong> ${data.message || 'Query submitted successfully'}</p>`;
+                
+                if (data.info_uri) {
+                    // Convert internal container URLs to external URLs and show proper Trino UI links
+                    const externalInfoUri = data.info_uri.replace('http://trino-coordinator:8080', 'http://localhost:8080');
+                    html += `<p><strong>Trino UI:</strong> <a href="#" class="trino-ui-link" onclick="openTrinoUI('${externalInfoUri}')">View in Trino</a></p>`;
+                }
+                
+                if (data.next_uri) {
+                    // Show the next URI for debugging but don't make it a clickable link
+                    const externalNextUri = data.next_uri.replace('http://trino-coordinator:8080', 'http://localhost:8080');
+                    html += `<p><strong>Next URI:</strong> <code class="next-uri-code">${externalNextUri}</code></p>`;
+                }
+                
+                html += '</div>';
+                queryOutput.innerHTML = html;
+                resultCount.textContent = `Query ID: ${data.query_id} | Status: ${data.status}`;
+                
+                // If we have a query ID, we can fetch results
+                if (data.query_id) {
+                    // Add a button to fetch results with better guidance
+                    let buttonText = 'Fetch Results';
+                    let buttonClass = 'btn btn-primary';
+                    let guidanceText = 'Click to get query results';
+                    
+                    if (data.status === 'FINISHED') {
+                        buttonText = 'View Results';
+                        buttonClass = 'btn btn-success';
+                        guidanceText = '✅ Query completed! Click to view results.';
+                    } else if (data.status === 'RUNNING') {
+                        buttonText = 'Check Status';
+                        buttonClass = 'btn btn-warning';
+                        guidanceText = '🔄 Query is running. Click to check current status.';
+                    } else if (data.status === 'QUEUED') {
+                        buttonText = 'Check Status & Store Results';
+                        buttonClass = 'btn btn-info';
+                        guidanceText = '⏳ Query is queued. Click to check status and attempt to store results.';
+                    } else if (data.status === 'FAILED') {
+                        buttonText = 'Check Error Details';
+                        buttonClass = 'btn btn-danger';
+                        guidanceText = '❌ Query failed. Click to see error details.';
+                    }
+                    
+                    queryOutput.innerHTML += `
+                        <div class="fetch-results-section">
+                            <p><strong>Next Steps:</strong></p>
+                            <button onclick="fetchQueryResults('${data.query_id}')" class="${buttonClass}">
+                                ${buttonText}
+                            </button>
+                            <p class="fetch-note">${guidanceText}</p>
+                        </div>
+                    `;
+                }
+            } else {
+                // Fallback for unexpected response format
+                queryOutput.innerHTML = `<div class="query-info">Response: ${JSON.stringify(data, null, 2)}</div>`;
+                resultCount.textContent = 'Response received';
+            }
+        }
+
+        async function pollQueryResults(nextUri, executionTime) {
+            const queryOutput = document.getElementById('query-output');
+            const queryStatus = document.getElementById('query-status');
+            const resultCount = document.getElementById('result-count');
+
+            try {
+                const response = await fetch(nextUri);
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    if (data.nextUri) {
+                        // Still running, poll again
+                        setTimeout(() => pollQueryResults(data.nextUri, executionTime), 1000);
+                        return;
+                    }
+                    
+                    // Query completed
+                    displayQueryResults(data, executionTime);
+                    queryStatus.textContent = 'Success';
+                    queryStatus.className = 'status-success';
+                } else {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+            } catch (error) {
+                showQueryError(`Failed to fetch results: ${error.message}`);
+                queryStatus.textContent = 'Failed';
+                queryStatus.className = 'status-error';
+            }
+        }
+
+        async function autoRetrieveAndDisplayResults(queryId) {
+            console.log('Starting automatic result retrieval for query:', queryId);
+            
+            // Show progress message
+            const queryOutput = document.getElementById('query-output');
+            queryOutput.innerHTML += '<div class="auto-retrieval-status">🔄 Automatically retrieving results...</div>';
+            
+            let attempts = 0;
+            const maxAttempts = 30; // 30 seconds max
+            const pollInterval = 1000; // 1 second intervals
+            
+            while (attempts < maxAttempts) {
+                attempts++;
+                console.log(`Attempt ${attempts}/${maxAttempts} to retrieve results for query: ${queryId}`);
+                
+                try {
+                    // Try to get results from our stored database first
+                    const response = await fetch(`${JSON_API_URL}/query/${queryId}/results`, {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${authToken}`
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        console.log('Query results response:', data);
+                        
+                        if (data.success && data.status === 'FINISHED' && data.data) {
+                            // Query completed with data - display results
+                            queryOutput.innerHTML = '<div class="query-success"><h5>✅ Query Completed Successfully!</h5></div>';
+                            displayQueryData(data.data, data.columns, data.stats, data.status);
+                            return; // Success - exit the loop
+                            
+                        } else if (data.success && data.status === 'FAILED') {
+                            // Query failed
+                            queryOutput.innerHTML = `<div class="query-error">❌ Query failed: ${data.error || 'Unknown error'}</div>`;
+                            return; // Exit the loop
+                            
+                        } else if (data.success && data.status === 'QUEUED') {
+                            // Query still queued, wait and continue (don't try to store results yet)
+                            console.log('Query still queued, waiting for it to start running...');
+                            
+                        } else if (data.success && data.status === 'RUNNING') {
+                            // Query still running, wait and continue
+                            console.log('Query still running, waiting...');
+                            
+                        } else {
+                            // Unknown status, continue polling
+                            console.log('Unknown status, continuing to poll...');
+                        }
+                    } else {
+                        console.log('Failed to get query results, continuing to poll...');
+                    }
+                    
+                } catch (error) {
+                    console.log('Error during result retrieval, continuing to poll:', error.message);
+                }
+                
+                // Wait before next attempt
+                await new Promise(resolve => setTimeout(resolve, pollInterval));
+                
+                // Update progress message
+                const statusDiv = queryOutput.querySelector('.auto-retrieval-status');
+                if (statusDiv) {
+                    statusDiv.innerHTML = `🔄 Automatically retrieving results... (${attempts}/${maxAttempts})`;
+                }
+            }
+            
+            // If we get here, we've exceeded max attempts
+            queryOutput.innerHTML = `
+                <div class="query-warning">
+                    <h5>⏰ Query Taking Longer Than Expected</h5>
+                    <p>The query is still processing. You can:</p>
+                    <ul>
+                        <li>Wait a bit longer and try again</li>
+                        <li>Check the query status in Recent Queries</li>
+                        <li>Use the "Store Results" button to manually retrieve results</li>
+                    </ul>
+                    <button onclick="fetchQueryResults('${queryId}')" class="btn btn-primary">Check Current Status</button>
+                </div>
+            `;
+        }
+
+        async function fetchQueryResults(queryId) {
+            try {
+                console.log('Fetching results for query:', queryId);
+                
+                // First, try to get stored results from our database
+                const response = await fetch(`${JSON_API_URL}/query/${queryId}/results`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('Query results received:', data);
+                    
+                    if (data.success && data.status === 'FINISHED' && data.data) {
+                        // Display the actual results data
+                        displayQueryData(data.data, data.columns, data.stats, data.status);
+                    } else if (data.success && data.status === 'QUEUED') {
+                        // Query is still queued, show status and wait
+                        showQueryInfo('Query is still queued. Please wait for it to start running.');
+                    } else if (data.success && data.status === 'RUNNING') {
+                        // Query is still running
+                        showQueryInfo('Query is still running. Please wait and try again.');
+                    } else if (data.success && data.status === 'FAILED') {
+                        // Query failed
+                        showQueryError(`Query failed: ${data.error || 'Unknown error'}`);
+                    } else if (data.success && data.status) {
+                        // Query has a status but no data - show status and suggest next steps
+                        showQueryInfo(`Query status: ${data.status}. ${data.message || ''}`);
+                        
+                        // Add button to manually store results if query might be complete
+                        if (data.status === 'RUNNING') {
+                            const queryOutput = document.getElementById('query-output');
+                            queryOutput.innerHTML += `
+                                <div class="fetch-results-section">
+                                    <p><strong>Next Steps:</strong></p>
+                                    <button onclick="storeQueryResults('${queryId}')" class="btn btn-info">
+                                        Try to Store Results from Trino
+                                    </button>
+                                    <p class="fetch-note">This will attempt to retrieve and store results from Trino.</p>
+                                </div>
+                            `;
+                        }
+                    } else {
+                        // Display status information
+                        displayQueryResults(data, 0);
+                    }
+                } else {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+            } catch (error) {
+                console.error('Error fetching query results:', error);
+                showQueryError(`Failed to fetch results: ${error.message}`);
+            }
+        }
+
+        function openTrinoUI(url) {
+            // Extract the query ID from the URL and open the proper Trino UI
+            let trinoUIUrl = 'http://localhost:8080/ui/';
+            
+            if (url.includes('/v1/statement/')) {
+                // Extract query ID from statement URL
+                const queryIdMatch = url.match(/\/v1\/statement\/([^\/]+)/);
+                if (queryIdMatch) {
+                    trinoUIUrl += `query.html?${queryIdMatch[1]}`;
+                }
+            } else if (url.includes('ui/query.html')) {
+                // Already a UI URL
+                trinoUIUrl = url;
+            }
+            
+            // Open in new tab
+            window.open(trinoUIUrl, '_blank');
+            return false; // Prevent default link behavior
+        }
+
+        function displayQueryData(data, columns, stats, queryStatus) {
+            console.log('displayQueryData called with:', { data, columns, stats, queryStatus });
+            const queryOutput = document.getElementById('query-output');
+            const resultCount = document.getElementById('result-count');
+
+            if (!data || data.length === 0) {
+                queryOutput.innerHTML = '<div class="query-success"><p>Query executed successfully. No results returned.</p></div>';
+                resultCount.textContent = 'Results: 0 rows';
+                return;
+            }
+
+            // Display results in a table
+            let html = '<div class="query-success">';
+            html += '<h5>Query Results:</h5>';
+            
+            html += '<div class="results-table-container">';
+            html += '<table class="results-table">';
+            
+            // Headers
+            html += '<thead><tr>';
+            if (columns && columns.length > 0) {
+                columns.forEach(col => {
+                    html += `<th>${col.name || col}</th>`;
+                });
+            } else {
+                // Fallback: use first row to determine columns
+                const firstRow = data[0];
+                if (firstRow && typeof firstRow === 'object') {
+                    Object.keys(firstRow).forEach(key => {
+                        html += `<th>${key}</th>`;
+                    });
+                }
+            }
+            html += '</tr></thead>';
+            
+            // Data rows
+            html += '<tbody>';
+            data.forEach(row => {
+                html += '<tr>';
+                if (Array.isArray(row)) {
+                    row.forEach(cell => {
+                        html += `<td>${cell === null ? '<em>null</em>' : String(cell)}</td>`;
+                    });
+                } else if (typeof row === 'object') {
+                    Object.values(row).forEach(cell => {
+                        html += `<td>${cell === null ? '<em>null</em>' : String(cell)}</td>`;
+                    });
+                }
+                html += '</tr>';
+            });
+            html += '</tbody>';
+            html += '</table>';
+            html += '</div>';
+            
+            // Add stats if available
+            if (stats) {
+                html += '<div class="query-stats">';
+                html += '<h6>Query Statistics:</h6>';
+                // CRITICAL: Display the backend status, not Trino's internal state
+                console.log('Building status display with queryStatus:', queryStatus, 'and stats:', stats);
+                html += `<p><strong>Status:</strong> ${queryStatus || 'Unknown'}</p>`;
+                if (stats.state) html += `<p><strong>Trino State:</strong> ${stats.state}</p>`;
+                if (stats.totalDrivers) html += `<p><strong>Total Drivers:</strong> ${stats.totalDrivers}</p>`;
+                if (stats.queuedDrivers) html += `<p><strong>Queued Drivers:</strong> ${stats.queuedDrivers}</p>`;
+                if (stats.runningDrivers) html += `<p><strong>Running Drivers:</strong> ${stats.runningDrivers}</p>`;
+                if (stats.completedDrivers) html += `<p><strong>Completed Drivers:</strong> ${stats.completedDrivers}</p>`;
+                html += '</div>';
+            }
+            
+            html += '</div>';
+            queryOutput.innerHTML = html;
+            resultCount.textContent = `Results: ${data.length} row(s)`;
+        }
+
+        function showQueryError(message) {
+            const queryOutput = document.getElementById('query-output');
+            queryOutput.innerHTML = `<div class="query-error">${message}</div>`;
+        }
+
+        function clearQuery() {
+            document.getElementById('sql-query-input').value = '';
+            document.getElementById('query-output').innerHTML = `
+                <div class="no-query-message">
+                    <p>Enter a SQL query above and click "Execute Query" to see results</p>
+                    <p class="query-tips">
+                        <strong>Query Tips:</strong><br>
+                        • Use <code>postgres.public.*</code> for PostgreSQL tables<br>
+                        • Use <code>iceberg.demo.*</code> for Iceberg tables<br>
+                        • Your access level depends on your role and permissions
+                    </p>
+                </div>
+            `;
+            document.getElementById('query-status').textContent = '';
+            document.getElementById('query-time').textContent = '';
+            document.getElementById('result-count').textContent = '';
+        }
+
+        function saveQuery() {
+            const query = document.getElementById('sql-query-input').value.trim();
+            if (!query) {
+                alert('Please enter a query to save');
+                return;
+            }
+
+            const queryName = prompt('Enter a name for this query:');
+            if (!queryName) return;
+
+            const savedQuery = {
+                name: queryName,
+                query: query,
+                timestamp: new Date().toISOString()
+            };
+
+            savedQueries.push(savedQuery);
+            saveSavedQueriesToStorage();
+            alert('Query saved successfully!');
+        }
+
+        function showSavedQueries() {
+            if (savedQueries.length === 0) {
+                alert('No saved queries found');
+                return;
+            }
+
+            const content = `
+                <div class="saved-queries-list">
+                    <h4>Saved Queries</h4>
+                    ${savedQueries.map((sq, index) => `
+                        <div class="saved-query-item">
+                            <div class="saved-query-info">
+                                <strong>${sq.name}</strong>
+                                <span class="saved-query-time">${new Date(sq.timestamp).toLocaleString()}</span>
+                            </div>
+                            <div class="saved-query-actions">
+                                <button onclick="loadSavedQuery(${index})" class="btn btn-small">Load</button>
+                                <button onclick="deleteSavedQuery(${index})" class="btn btn-small btn-danger">Delete</button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            showModal('Saved Queries', content);
+        }
+
+        function loadSavedQuery(index) {
+            const savedQuery = savedQueries[index];
+            document.getElementById('sql-query-input').value = savedQuery.query;
+            hideModal();
+        }
+
+        function deleteSavedQuery(index) {
+            if (confirm('Are you sure you want to delete this saved query?')) {
+                savedQueries.splice(index, 1);
+                saveSavedQueriesToStorage();
+                showSavedQueries(); // Refresh the modal
+            }
+        }
+
+        function addToQueryHistory(query, status, executionTime) {
+            const historyItem = {
+                query: query,
+                status: status,
+                executionTime: executionTime,
+                timestamp: new Date().toISOString(),
+                user: currentUser.email
+            };
+
+            queryHistory.unshift(historyItem);
+            
+            // Keep only last 20 queries
+            if (queryHistory.length > 20) {
+                queryHistory = queryHistory.slice(0, 20);
+            }
+
+            updateQueryHistoryDisplay();
+        }
+
+        function updateQueryHistoryDisplay() {
+            const historyList = document.getElementById('query-history-list');
+            
+            if (queryHistory.length === 0) {
+                historyList.innerHTML = '<p>No queries executed yet</p>';
+                return;
+            }
+
+            historyList.innerHTML = queryHistory.map(item => `
+                <div class="query-history-item ${item.status}">
+                    <div class="query-history-content">
+                        <div class="query-history-query">${item.query.substring(0, 100)}${item.query.length > 100 ? '...' : ''}</div>
+                        <div class="query-history-meta">
+                            <span class="query-history-time">${new Date(item.timestamp).toLocaleString()}</span>
+                            <span class="query-history-status">${item.status}</span>
+                            ${item.executionTime > 0 ? `<span class="query-history-duration">${item.executionTime}ms</span>` : ''}
+                        </div>
+                    </div>
+                    <button onclick="loadQueryFromHistory('${item.query.replace(/'/g, "\\'")}')" class="btn btn-small">Load</button>
+                </div>
+            `).join('');
+        }
+
+        function loadQueryFromHistory(query) {
+            document.getElementById('sql-query-input').value = query;
+        }
+
+        function saveSavedQueriesToStorage() {
+            localStorage.setItem('ues-saved-queries', JSON.stringify(savedQueries));
+        }
+
+        function loadSavedQueriesFromStorage() {
+            const saved = localStorage.getItem('ues-saved-queries');
+            if (saved) {
+                try {
+                    savedQueries = JSON.parse(saved);
+                } catch (e) {
+                    savedQueries = [];
+                }
+            }
+        }
+
+        function initializePolicyEditor() {
+            console.log('initializePolicyEditor called');
+            
+            // Handle create policy button
+            const createBtn = document.getElementById('create-policy-btn');
+            if (createBtn) {
+                console.log('Create policy button found, adding event listener');
+                createBtn.addEventListener('click', () => {
+                    console.log('Create policy button clicked');
+                    showCreatePolicyModal();
+                });
+            } else {
+                console.error('Create policy button not found');
+            }
+            
+            // Handle refresh policies button
+            const refreshBtn = document.getElementById('refresh-policies');
+            if (refreshBtn) {
+                console.log('Refresh policies button found, adding event listener');
+                refreshBtn.addEventListener('click', () => {
+                    console.log('Refresh policies button clicked');
+                    loadPolicies();
+                });
+            } else {
+                console.error('Refresh policies button not found');
+            }
+            
+
+        }
+        
+
+
+        async function loadPolicies() {
+            console.log('loadPolicies called');
+            const policyOutput = document.getElementById('policy-output');
+            
+            // Check if policy output element exists
+            if (!policyOutput) {
+                console.error('Policy output element not found');
+                return;
+            }
+            
+            // Check if user is authenticated
+            if (!authToken || !currentUser) {
+                console.log('User not authenticated, showing login message');
+                policyOutput.innerHTML = '<div class="policy-info">Please log in to view policies</div>';
+                return;
+            }
+            
+            console.log('User authenticated, loading policies...');
+            // Show loading state
+            policyOutput.innerHTML = '<div class="policy-info">Loading policies...</div>';
+            
+            try {
+                const url = `${API_BASE}/policies`;
+                console.log('Making request to:', url);
+                console.log('Auth token present:', !!authToken);
+                
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+
+                console.log('Response status:', response.status);
+                console.log('Response ok:', response.ok);
+
+                if (response.ok) {
+                    const policies = await response.json();
+                    console.log('Policies received:', policies);
+                    displayPolicies(policies);
+                } else if (response.status === 401) {
+                    policyOutput.innerHTML = '<div class="policy-info">Authentication expired. Please log in again.</div>';
+                    console.error('Authentication failed:', response.status);
+                } else if (response.status === 403) {
+                    policyOutput.innerHTML = '<div class="policy-info">Access denied. You do not have permission to view policies.</div>';
+                    console.error('Access denied:', response.status);
+                } else {
+                    console.error('Failed to load policies:', response.status);
+                    policyOutput.innerHTML = `<div class="policy-info">Failed to load policies (HTTP ${response.status})</div>`;
+                }
+            } catch (error) {
+                console.error('Error loading policies:', error);
+                policyOutput.innerHTML = '<div class="policy-info">Network error. Please check your connection and try again.</div>';
+            }
+        }
+
+        function displayPolicies(policies) {
+            console.log('displayPolicies called with:', policies);
+            const policyOutput = document.getElementById('policy-output');
+            
+            if (!policies || policies.length === 0) {
+                policyOutput.innerHTML = '<div class="policy-info">No policies found</div>';
+                return;
+            }
+
+            let html = '<div class="policies-list">';
+            html += `<h4>Current Policies (${policies.length} total)</h4>`;
+            
+            policies.forEach(policy => {
+                console.log('Processing policy:', policy);
+                const statusClass = policy.published ? 'status-published' : 'status-draft';
+                const statusText = policy.published ? '✅ Published' : '📝 Draft';
+                const createdDate = policy.created_at ? new Date(policy.created_at).toLocaleString() : 'Unknown';
+                
+                html += `
+                    <div class="policy-item ${statusClass}" data-policy-id="${policy.id}">
+                        <div class="policy-header">
+                            <h5>${policy.name || 'Unnamed Policy'}</h5>
+                            <span class="policy-status ${statusClass}">${statusText}</span>
+                        </div>
+                        <div class="policy-details">
+                            <p><strong>Path:</strong> <code>${policy.path || 'Unknown'}</code></p>
+                            <p><strong>Version:</strong> ${policy.version || '1'}</p>
+                            <p><strong>Bundle:</strong> ${policy.bundle_name || 'main'}</p>
+                            <p><strong>Created:</strong> ${createdDate}</p>
+                            <p><strong>Created By:</strong> ${policy.created_by || 'Unknown'}</p>
+                        </div>
+                        <div class="policy-actions">
+                            ${policy.published ? 
+                                `<button class="btn btn-small btn-warning unpublish-btn" data-policy-id="${policy.id}">Unpublish</button>` : 
+                                `<button class="btn btn-small btn-success publish-btn" data-policy-id="${policy.id}">Publish</button>`
+                            }
+                            <button class="btn btn-small btn-primary view-policy-btn" data-policy-id="${policy.id}">View Policy</button>
+                            <button class="btn btn-small btn-secondary edit-policy-btn" data-policy-id="${policy.id}">Edit Policy</button>
+                            <button class="btn btn-small btn-danger delete-policy-btn" data-policy-id="${policy.id}">Delete</button>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            console.log('Setting policy output HTML, length:', html.length);
+            policyOutput.innerHTML = html;
+            console.log('Policy output HTML set');
+            
+            // Now set up event listeners for all the buttons
+            setupPolicyButtonListeners();
+        }
+        
+        function setupPolicyButtonListeners() {
+            console.log('Setting up policy button listeners...');
+            
+            // Publish buttons
+            document.querySelectorAll('.publish-btn').forEach(button => {
+                button.addEventListener('click', async (e) => {
+                    const policyId = e.currentTarget.dataset.policyId;
+                    console.log('Publish button clicked for policy:', policyId);
+                    await publishPolicy(policyId);
+                });
+            });
+
+            // Unpublish buttons
+            document.querySelectorAll('.unpublish-btn').forEach(button => {
+                button.addEventListener('click', async (e) => {
+                    const policyId = e.currentTarget.dataset.policyId;
+                    console.log('Unpublish button clicked for policy:', policyId);
+                    await unpublishPolicy(policyId);
+                });
+            });
+
+            // View policy buttons
+            document.querySelectorAll('.view-policy-btn').forEach(button => {
+                button.addEventListener('click', async (e) => {
+                    const policyId = e.currentTarget.dataset.policyId;
+                    console.log('View policy button clicked for policy:', policyId);
+                    await loadPolicyToEditor(policyId);
+                });
+            });
+
+            // Edit policy buttons
+            document.querySelectorAll('.edit-policy-btn').forEach(button => {
+                button.addEventListener('click', async (e) => {
+                    const policyId = e.currentTarget.dataset.policyId;
+                    console.log('Edit policy button clicked for policy:', policyId);
+                    await loadPolicyForEdit(policyId);
+                });
+            });
+
+            // Delete buttons
+            document.querySelectorAll('.delete-policy-btn').forEach(button => {
+                button.addEventListener('click', async (e) => {
+                    const policyId = e.currentTarget.dataset.policyId;
+                    console.log('Delete button clicked for policy:', policyId);
+                    await deletePolicy(policyId);
+                });
+            });
+            
+            console.log('Policy button listeners set up complete');
+        }
+
+        async function publishPolicy(policyId) {
+            try {
+                const response = await fetch(`${API_BASE}/policies/${policyId}/publish`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    alert('Policy published successfully!');
+                    loadPolicies(); // Refresh the list
+                } else {
+                    alert('Failed to publish policy');
+                }
+            } catch (error) {
+                console.error('Error publishing policy:', error);
+                alert('Error publishing policy');
+            }
+        }
+
+        async function unpublishPolicy(policyId) {
+            try {
+                const response = await fetch(`${API_BASE}/policies/${policyId}/unpublish`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    alert('Policy unpublished successfully!');
+                    loadPolicies(); // Refresh the list
+                } else {
+                    alert('Failed to unpublish policy');
+                }
+            } catch (error) {
+                console.error('Error unpublishing policy:', error);
+                alert('Error unpublishing policy');
+            }
+        }
+
+        async function deletePolicy(policyId) {
+            if (!confirm('Are you sure you want to delete this policy? This action cannot be undone.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/policies/${policyId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    alert('Policy deleted successfully!');
+                    loadPolicies(); // Refresh the list
+                } else {
+                    alert('Failed to delete policy');
+                }
+            } catch (error) {
+                console.error('Error deleting policy:', error);
+                alert('Error deleting policy');
+            }
+        }
+
+        async function loadPolicyToEditor(policyId) {
+            console.log('loadPolicyToEditor called with policyId:', policyId);
+            console.log('API_BASE:', API_BASE);
+            console.log('authToken present:', !!authToken);
+            
+            try {
+                // Show loading state
+                const modal = document.getElementById('policyModal');
+                const modalContent = document.getElementById('policyModalContent');
+                modalContent.innerHTML = '<div class="loading">Loading policy...</div>';
+                modal.style.display = 'block';
+                
+                const url = `${API_BASE}/policies/${policyId}`;
+                
+                // Fetch the full policy data
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Failed to load policy: ${response.statusText} - ${errorText}`);
+                }
+                
+                const policy = await response.json();
+                
+                // Show policy content in modal
+                const content = `
+                    <div class="policy-content-viewer">
+                        <div class="policy-info">
+                            <p><strong>Name:</strong> ${policy.name || 'Unnamed'}</p>
+                            <p><strong>Path:</strong> ${policy.path || 'No path'}</p>
+                            <p><strong>Version:</strong> ${policy.version || '1'}</p>
+                            <p><strong>Bundle:</strong> ${policy.bundle_name || 'main'}</p>
+                            <p><strong>Status:</strong> ${policy.published ? 'Published' : 'Draft'}</p>
+                            <p><strong>Created:</strong> ${new Date(policy.created_at).toLocaleString()}</p>
+                            <p><strong>Created By:</strong> ${policy.created_by || 'Unknown'}</p>
+                        </div>
+                        
+
+                        
+                        <div class="policy-code">
+                            <h4>Policy Content:</h4>
+                            ${policy.rego_text ? 
+                                `<pre><code>${policy.rego_text}</code></pre>` : 
+                                '<p class="error">❌ No policy content available - rego_text field is missing or empty</p>'
+                            }
+                        </div>
+                        <div class="modal-actions">
+                            ${policy.rego_text ? 
+                                `<button onclick="copyPolicyToClipboard('${(policy.rego_text || '').replace(/'/g, "\\'")}', '${policy.name || 'Unnamed'}')" class="btn btn-secondary">Copy to Clipboard</button>` : 
+                                '<button class="btn btn-secondary" disabled>Copy to Clipboard (No Content)</button>'
+                            }
+                            <button onclick="closeModal()" class="btn btn-primary">Close</button>
+                        </div>
+                    </div>
+                `;
+                
+                modalContent.innerHTML = content;
+                
+            } catch (error) {
+                console.error('Error loading policy:', error);
+                modalContent.innerHTML = `<div class="error">Error loading policy: ${error.message}</div>`;
+            }
+        }
+        
+        function copyPolicyToClipboard(regoText, name) {
+            navigator.clipboard.writeText(regoText).then(() => {
+                alert(`Policy "${name}" copied to clipboard!`);
+            }).catch(err => {
+                console.error('Failed to copy to clipboard:', err);
+                alert('Failed to copy to clipboard');
+            });
+        }
+
+        function initializeTabs() {
+            console.log('initializeTabs called');
+            const tabBtns = document.querySelectorAll('.tab-btn');
+            const tabPanes = document.querySelectorAll('.tab-pane');
+            
+            console.log('Found tab buttons:', tabBtns.length);
+            console.log('Found tab panes:', tabPanes.length);
+            
+            // Log all tab buttons
+            tabBtns.forEach((btn, index) => {
+                console.log(`Tab button ${index}:`, btn.dataset.tab, btn.textContent);
+            });
+
+            tabBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const targetTab = btn.dataset.tab;
+                    console.log('Tab clicked:', targetTab);
+                    console.log('Button element:', btn);
+                    console.log('Button text:', btn.textContent);
+                    
+                    // Update active tab button
+                    tabBtns.forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    
+                    // Update active tab pane
+                    tabPanes.forEach(pane => pane.classList.remove('active'));
+                    const targetPane = document.getElementById(`${targetTab}-tab`);
+                    console.log('Target pane element:', targetPane);
+                    if (targetPane) {
+                        targetPane.classList.add('active');
+                    } else {
+                        console.error('Target pane not found:', `${targetTab}-tab`);
+                    }
+                    
+                    // Auto-load Cerbos policies when policies tab is opened
+                    if (targetTab === 'policies') {
+                        console.log('Policies tab clicked, loading Cerbos policies...');
+                        console.log('authToken present:', !!authToken);
+                        console.log('currentUser present:', !!currentUser);
+                        console.log('loadCerbosPolicies function exists:', typeof loadCerbosPolicies === 'function');
+                        
+                        // Load Cerbos policies - use authToken variable or get from localStorage
+                        const token = authToken || localStorage.getItem('authToken');
+                        if (token) {
+                            console.log('Token found, calling loadCerbosPolicies()...');
+                            // Use setTimeout to ensure DOM is ready
+                            setTimeout(() => {
+                                try {
+                                    if (typeof loadCerbosPolicies === 'function') {
+                                        loadCerbosPolicies();
+                                    } else {
+                                        console.error('loadCerbosPolicies is not a function!');
+                                    }
+                                } catch (error) {
+                                    console.error('Error calling loadCerbosPolicies:', error);
+                                }
+                            }, 100);
+                        } else {
+                            console.warn('Cannot load Cerbos policies: no token available');
+                        }
+                    }
+                });
+            });
+        }
+
+        function initializeAdminFeatures() {
+            // Initialize user management
+            document.getElementById('add-user-btn').addEventListener('click', () => showAddUserModal());
+            loadUsers();
+
+            // Initialize role management
+            document.getElementById('add-role-btn').addEventListener('click', () => showAddRoleModal());
+            loadRoles();
+
+            // Initialize permission management
+            document.getElementById('add-permission-btn').addEventListener('click', () => showAddPermissionModal());
+            loadPermissions();
+            
+            // Initialize Cerbos policy editor buttons
+            initializeCerbosPolicyButtons();
+        }
+
+        async function loadUsers() {
+            try {
+                const response = await fetch(`${API_BASE}/users`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                if (response.ok) {
+                    const users = await response.json();
+                    displayUsers(users);
+                }
+            } catch (error) {
+                console.error('Error loading users:', error);
+            }
+        }
+
+        function displayUsers(users) {
+            const usersList = document.getElementById('users-list');
+            usersList.innerHTML = users.map(user => `
+                <div class="data-item">
+                    <div class="item-info">
+                        <strong>${user.email}</strong>
+                        <span>${user.first_name || ''} ${user.last_name || ''}</span>
+                        <span class="roles">${user.roles.join(', ')}</span>
+                    </div>
+                    <div class="item-actions">
+                        <button onclick="editUser(${user.id})" class="btn btn-small">Edit</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function loadRoles() {
+            try {
+                const response = await fetch(`${API_BASE}/roles`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                if (response.ok) {
+                    const roles = await response.json();
+                    displayRoles(roles);
+                }
+            } catch (error) {
+                console.error('Error loading roles:', error);
+            }
+        }
+
+        function displayRoles(roles) {
+            const rolesList = document.getElementById('roles-list');
+            rolesList.innerHTML = roles.map(role => `
+                <div class="data-item">
+                    <div class="item-info">
+                        <strong>${role.name}</strong>
+                        <span>${role.description || ''}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function loadPermissions() {
+            try {
+                const response = await fetch(`${API_BASE}/permissions`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                if (response.ok) {
+                    const permissions = await response.json();
+                    displayPermissions(permissions);
+                }
+            } catch (error) {
+                console.error('Error loading permissions:', error);
+            }
+        }
+
+        function displayPermissions(permissions) {
+            const permissionsList = document.getElementById('permissions-list');
+            permissionsList.innerHTML = permissions.map(permission => `
+                <div class="data-item" data-permission-id="${permission.id}">
+                    <div class="item-info">
+                        <strong>${permission.name}</strong>
+                        <span>${permission.description || ''}</span>
+                        <span class="permission-details">
+                            ${permission.resource_type} - ${permission.resource_name || '*'}:${permission.field_name || '*'}
+                        </span>
+                        <span class="action-info">Action: ${permission.action}</span>
+                    </div>
+                    <div class="item-actions">
+                        <button onclick="showEditPermissionModal(${permission.id})" class="btn btn-small">Edit</button>
+                        <button onclick="deletePermission(${permission.id})" class="btn btn-small btn-danger">Delete</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // Modal functions
+        function showModal(title, content) {
+            document.getElementById('modal-title').textContent = title;
+            document.getElementById('modal-body').innerHTML = content;
+            document.getElementById('modal-overlay').style.display = 'block';
+        }
+
+        function hideModal() {
+            document.getElementById('modal-overlay').style.display = 'none';
+        }
+
+        function closePolicyModal() {
+            document.getElementById('policyModal').style.display = 'none';
+        }
+
+        function closeModal() {
+            document.getElementById('policyModal').style.display = 'none';
+        }
+
+        function showAddUserModal() {
+            const content = `
+                <form id="add-user-form">
+                    <div class="form-group">
+                        <label for="new-user-email">Email:</label>
+                        <input type="email" id="new-user-email" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="new-user-password">Password:</label>
+                        <input type="password" id="new-user-password" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="new-user-firstname">First Name:</label>
+                        <input type="text" id="new-user-firstname">
+                    </div>
+                    <div class="form-group">
+                        <label for="new-user-lastname">Last Name:</label>
+                        <input type="text" id="new-user-lastname">
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Create User</button>
+                        <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+                    </div>
+                </form>
+            `;
+            showModal('Add New User', content);
+            
+            document.getElementById('add-user-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                // Handle user creation
+                hideModal();
+                loadUsers();
+            });
+        }
+
+        function showAddRoleModal() {
+            const content = `
+                <form id="add-role-form">
+                    <div class="form-group">
+                        <label for="new-role-name">Role Name:</label>
+                        <input type="text" id="new-role-name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="new-role-description">Description:</label>
+                        <textarea id="new-role-description"></textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Create Role</button>
+                        <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+                    </div>
+                </form>
+            `;
+            showModal('Add New Role', content);
+        }
+
+        function showAddPermissionModal() {
+            const content = `
+                <form id="add-permission-form">
+                    <div class="form-group">
+                        <label for="new-permission-name">Permission Name:</label>
+                        <input type="text" id="new-permission-name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="new-permission-description">Description:</label>
+                        <textarea id="new-permission-description"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="new-permission-resource-type">Resource Type:</label>
+                        <select id="new-permission-resource-type" required>
+                            <option value="postgres">PostgreSQL</option>
+                            <option value="iceberg">Iceberg</option>
+                            <option value="field">Field</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="new-permission-resource-name">Resource Name:</label>
+                        <input type="text" id="new-permission-resource-name" placeholder="* for all">
+                    </div>
+                    <div class="form-group">
+                        <label for="new-permission-field-name">Field Name:</label>
+                        <input type="text" id="new-permission-field-name" placeholder="* for all">
+                    </div>
+                    <div class="form-group">
+                        <label for="new-permission-action">Action:</label>
+                        <select id="new-permission-action" required>
+                            <option value="query">Query</option>
+                            <option value="read">Read</option>
+                            <option value="write">Write</option>
+                        </select>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Create Permission</button>
+                        <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+                    </div>
+                </form>
+            `;
+            showModal('Add New Permission', content);
+            
+            // Add form submission handler
+            document.getElementById('add-permission-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await createPermission();
+            });
+        }
+
+        function showCreatePolicyModal() {
+            const content = `
+                <form id="create-policy-form">
+                    <div class="form-group">
+                        <label for="new-policy-name">Policy Name:</label>
+                        <input type="text" id="new-policy-name" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="new-policy-path">Policy Path:</label>
+                        <input type="text" id="new-policy-path" placeholder="e.g., data.ues.allow" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="new-policy-bundle">Bundle Name:</label>
+                        <input type="text" id="new-policy-bundle" value="main" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="new-policy-rego">Rego Policy Code:</label>
+                        <textarea id="new-policy-rego" rows="10" placeholder="package ues&#10;&#10;default allow = false&#10;&#10;allow {&#10;    # Your policy logic here&#10;}" required></textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Create Policy</button>
+                        <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+                    </div>
+                </form>
+            `;
+            showModal('Create New Policy', content);
+            
+            // Add form submission handler
+            document.getElementById('create-policy-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await createPolicy();
+            });
+        }
+
+        function showEditPolicyModal(policyId) {
+            // Load existing policy data and show edit form
+            loadPolicyForEdit(policyId);
+        }
+
+        function showEditPermissionModal(permissionId) {
+            // Load existing permission data and show edit form
+            loadPermissionForEdit(permissionId);
+        }
+
+        // Close modal when clicking overlay
+        document.getElementById('modal-overlay').addEventListener('click', (e) => {
+            if (e.target.id === 'modal-overlay') {
+                hideModal();
+            }
+        });
+
+        // Close modal when clicking close button
+        document.querySelectorAll('.modal-close').forEach(btn => {
+            btn.addEventListener('click', hideModal);
+        });
+
+        // Query History Functions
+        async function loadQueryHistory() {
+            try {
+                const response = await fetch(`${JSON_API_URL}/queries`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    displayQueryHistory(data.queries);
+                } else {
+                    console.error('Failed to load query history:', response.status);
+                }
+            } catch (error) {
+                console.error('Error loading query history:', error);
+            }
+        }
+
+        function displayQueryHistory(queries) {
+            const historyList = document.getElementById('query-history-list');
+            
+            if (!queries || queries.length === 0) {
+                historyList.innerHTML = '<p class="no-history">No queries found</p>';
+                return;
+            }
+
+            let html = '';
+            queries.forEach(query => {
+                const statusClass = `status-${query.status.toLowerCase()}`;
+                const submittedDate = new Date(query.submitted_at).toLocaleString();
+                
+                // Store SQL query in data attribute for safer access
+                const queryId = query.id;
+                const sqlQuery = query.sql_query || '';
+                
+                html += `
+                    <div class="query-history-item ${statusClass}" data-query-id="${queryId}" data-sql-query="${encodeURIComponent(sqlQuery)}">
+                        <div class="query-info">
+                            <div class="query-sql">${sqlQuery.substring(0, 100)}${sqlQuery.length > 100 ? '...' : ''}</div>
+                            <div class="query-meta">
+                                <span class="query-status ${statusClass}">${query.status}</span>
+                                <span class="query-date">${submittedDate}</span>
+                                <span class="query-catalog">${query.catalog || 'default'}</span>
+                            </div>
+                        </div>
+                        <div class="query-actions">
+                            ${query.status === 'FINISHED' ? 
+                                `<button onclick="fetchStoredResults('${queryId}')" class="btn btn-sm btn-primary">View Results</button>` : 
+                                `<button onclick="storeQueryResults('${queryId}')" class="btn btn-sm btn-secondary">Store Results</button>`
+                            }
+                            <button onclick="deleteQuery('${queryId}')" class="btn btn-sm btn-danger">Delete</button>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            historyList.innerHTML = html;
+        }
+
+        async function fetchStoredResults(queryId) {
+            console.log('fetchStoredResults called for queryId:', queryId);
+            
+            // Find the query history item and get the SQL query from data attribute
+            const queryItem = document.querySelector(`[data-query-id="${queryId}"]`);
+            if (queryItem) {
+                const sqlQueryEncoded = queryItem.getAttribute('data-sql-query');
+                if (sqlQueryEncoded) {
+                    const sqlQuery = decodeURIComponent(sqlQueryEncoded);
+                    const queryInput = document.getElementById('sql-query-input');
+                    if (queryInput) {
+                        queryInput.value = sqlQuery;
+                        console.log('Populated SQL query input with historical query');
+                    }
+                }
+            }
+            
+            try {
+                const response = await fetch(`${JSON_API_URL}/query/${queryId}/results`, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+
+                console.log('fetchStoredResults response status:', response.status);
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('fetchStoredResults response data:', data);
+                    if (data.success && data.data) {
+                        console.log('Calling displayQueryData with:', { data: data.data, columns: data.columns, stats: data.stats, status: data.status });
+                        displayQueryData(data.data, data.columns, data.stats, data.status);
+                        // Switch to query results tab
+                        document.getElementById('query-output').scrollIntoView({ behavior: 'smooth' });
+                    } else {
+                        console.log('No data available, showing error');
+                        showQueryError(data.error || 'No results available');
+                    }
+                } else {
+                    console.log('Response not OK, showing error');
+                    showQueryError('Failed to fetch stored results');
+                }
+            } catch (error) {
+                console.error('Error fetching stored results:', error);
+                showQueryError('Failed to fetch stored results');
+            }
+        }
+
+        async function storeQueryResults(queryId) {
+            try {
+                const response = await fetch(`${JSON_API_URL}/query/${queryId}/store-results`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success) {
+                        // Refresh the query history to show updated status
+                        loadQueryHistory();
+                        showQuerySuccess('Query results stored successfully');
+                    } else {
+                        showQueryError(data.error || 'Failed to store results');
+                    }
+                } else {
+                        showQueryError('Failed to store query results');
+                }
+            } catch (error) {
+                console.error('Error storing query results:', error);
+                showQueryError('Failed to store query results');
+            }
+        }
+
+        async function deleteQuery(queryId) {
+            if (!confirm('Are you sure you want to delete this query?')) {
+                return;
+            }
+
+            try {
+                console.log('Deleting query:', queryId);
+                const response = await fetch(`${JSON_API_URL}/query/${queryId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    showQuerySuccess(data.message || 'Query deleted successfully');
+                    loadQueryHistory(); // Refresh the list
+                } else {
+                    const errorData = await response.json();
+                    showQueryError(errorData.detail || 'Failed to delete query');
+                }
+            } catch (error) {
+                console.error('Error deleting query:', error);
+                showQueryError('Failed to delete query');
+            }
+        }
+
+        async function clearQueryHistory() {
+            if (confirm('Are you sure you want to clear all query history?')) {
+                try {
+                    console.log('Clearing all query history');
+                    const response = await fetch(`${JSON_API_URL}/queries`, {
+                        method: 'DELETE',
+                        headers: {
+                            'Authorization': `Bearer ${authToken}`
+                        }
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        document.getElementById('query-history-list').innerHTML = '<p class="no-history">No queries found</p>';
+                        showQuerySuccess(data.message || 'Query history cleared');
+                    } else {
+                        const errorData = await response.json();
+                        showQueryError(errorData.detail || 'Failed to clear query history');
+                    }
+                } catch (error) {
+                    console.error('Error clearing query history:', error);
+                    showQueryError('Failed to clear query history');
+                }
+            }
+        }
+
+        function showQuerySuccess(message) {
+            const queryOutput = document.getElementById('query-output');
+            queryOutput.innerHTML = `<div class="query-success">${message}</div>`;
+        }
+
+        function showQueryInfo(message) {
+            const queryOutput = document.getElementById('query-output');
+            queryOutput.innerHTML = `<div class="query-info">${message}</div>`;
+        }
+
+        // Load query history on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            if (authToken) {
+                loadQueryHistory();
+            }
+        });
+        
+        // Global debugging functions (accessible from console)
+        window.debugPolicyEndpoint = async function(policyId) {
+            console.log('=== DEBUGGING POLICY ENDPOINT ===');
+            console.log('Testing policy ID:', policyId);
+            console.log('API_BASE:', API_BASE);
+            console.log('Auth token present:', !!authToken);
+            
+            try {
+                const url = `${API_BASE}/policies/${policyId}`;
+                console.log('Making request to:', url);
+                
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                console.log('Response status:', response.status);
+                console.log('Response ok:', response.ok);
+                
+                if (response.ok) {
+                    const responseText = await response.text();
+                    console.log('Raw response:', responseText);
+                    
+                    try {
+                        const policy = JSON.parse(responseText);
+                        console.log('Parsed policy:', policy);
+                        console.log('Available fields:', Object.keys(policy));
+                        console.log('rego_text present:', !!policy.rego_text);
+                        if (policy.rego_text) {
+                            console.log('rego_text length:', policy.rego_text.length);
+                            console.log('rego_text preview:', policy.rego_text.substring(0, 200));
+                        }
+                        return policy;
+                    } catch (parseError) {
+                        console.error('JSON parse error:', parseError);
+                        return null;
+                    }
+                } else {
+                    const errorText = await response.text();
+                    console.error('HTTP error:', response.status, errorText);
+                    return null;
+                }
+            } catch (error) {
+                console.error('Request error:', error);
+                return null;
+            }
+        };
+        
+        window.debugAllPolicies = async function() {
+            console.log('=== DEBUGGING ALL POLICIES ===');
+            try {
+                const response = await fetch(`${API_BASE}/policies`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                if (response.ok) {
+                    const policies = await response.json();
+                    console.log('All policies:', policies);
+                    return policies;
+                } else {
+                    console.error('Failed to fetch policies:', response.status);
+                    return null;
+                }
+            } catch (error) {
+                console.error('Error fetching policies:', error);
+                return null;
+            }
+        };
+        
+        console.log('Debug functions available:');
+        console.log('  debugPolicyEndpoint(policyId) - Test individual policy endpoint');
+        console.log('  debugAllPolicies() - Test policies list endpoint');
+        
+        // Additional debug function to test endpoint directly
+        window.testPolicyEndpoint = async function(policyId) {
+            try {
+                const url = `${API_BASE}/policies/${policyId}`;
+                console.log('Testing endpoint:', url);
+                
+                const response = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                
+                const responseText = await response.text();
+                console.log('Raw response:', responseText);
+                
+                // Show in alert for easy viewing
+                alert(`Response Status: ${response.status}\n\nRaw Response:\n${responseText.substring(0, 1000)}${responseText.length > 1000 ? '...' : ''}`);
+                
+                return responseText;
+            } catch (error) {
+                console.error('Error:', error);
+                alert(`Error: ${error.message}`);
+                return null;
+            }
+        };
+        
+        console.log('  testPolicyEndpoint(policyId) - Test endpoint and show raw response');
+
+        // Policy Management Functions
+        async function createPolicy() {
+            const name = document.getElementById('new-policy-name').value;
+            const path = document.getElementById('new-policy-path').value;
+            const bundle = document.getElementById('new-policy-bundle').value;
+            const regoText = document.getElementById('new-policy-rego').value;
+
+            try {
+                const response = await fetch(`${API_BASE}/policies`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({
+                        name: name,
+                        path: path,
+                        rego_text: regoText,
+                        bundle_name: bundle,
+                        version: 1,
+                        published: false
+                    })
+                });
+
+                if (response.ok) {
+                    alert('Policy created successfully!');
+                    hideModal();
+                    loadPolicies();
+                } else {
+                    const errorText = await response.text();
+                    alert(`Failed to create policy: ${response.status} - ${errorText}`);
+                }
+            } catch (error) {
+                console.error('Error creating policy:', error);
+                alert('Error creating policy: ' + error.message);
+            }
+        }
+
+        async function loadPolicyForEdit(policyId) {
+            try {
+                // Load all policies and find the one we need
+                const response = await fetch(`${API_BASE}/policies`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const policies = await response.json();
+                    const policy = policies.find(p => p.id == policyId);
+                    
+                    if (policy) {
+                        // For policies, we need the full content, so load it individually
+                        const fullPolicyResponse = await fetch(`${API_BASE}/policies/${policyId}`, {
+                            headers: {
+                                'Authorization': `Bearer ${authToken}`
+                            }
+                        });
+                        
+                        if (fullPolicyResponse.ok) {
+                            const fullPolicy = await fullPolicyResponse.json();
+                            showEditPolicyForm(fullPolicy);
+                        } else {
+                            alert('Failed to load full policy content for editing');
+                        }
+                    } else {
+                        alert('Policy not found');
+                    }
+                } else {
+                    alert('Failed to load policies');
+                }
+            } catch (error) {
+                console.error('Error loading policies for edit:', error);
+                alert('Error loading policies for editing');
+            }
+        }
+
+        function showEditPolicyForm(policy) {
+            const content = `
+                <form id="edit-policy-form">
+                    <input type="hidden" id="edit-policy-id" value="${policy.id}">
+                    <div class="form-group">
+                        <label for="edit-policy-name">Policy Name:</label>
+                        <input type="text" id="edit-policy-name" value="${policy.name || ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-policy-path">Policy Path:</label>
+                        <input type="text" id="edit-policy-path" value="${policy.path || ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-policy-bundle">Bundle Name:</label>
+                        <input type="text" id="edit-policy-bundle" value="${policy.bundle_name || 'main'}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-policy-rego">Rego Policy Code:</label>
+                        <textarea id="edit-policy-rego" rows="10" required>${policy.rego_text || ''}</textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Update Policy</button>
+                        <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+                    </div>
+                </form>
+            `;
+            showModal('Edit Policy', content);
+            
+            // Add form submission handler
+            document.getElementById('edit-policy-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await updatePolicy();
+            });
+        }
+
+        async function updatePolicy() {
+            const policyId = document.getElementById('edit-policy-id').value;
+            const name = document.getElementById('edit-policy-name').value;
+            const path = document.getElementById('edit-policy-path').value;
+            const bundle = document.getElementById('edit-policy-bundle').value;
+            const regoText = document.getElementById('edit-policy-rego').value;
+
+            try {
+                const response = await fetch(`${API_BASE}/policies/${policyId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({
+                        name: name,
+                        path: path,
+                        rego_text: regoText,
+                        bundle_name: bundle
+                    })
+                });
+
+                if (response.ok) {
+                    alert('Policy updated successfully!');
+                    hideModal();
+                    loadPolicies();
+                } else {
+                    const errorText = await response.text();
+                    alert(`Failed to update policy: ${response.status} - ${errorText}`);
+                }
+            } catch (error) {
+                console.error('Error updating policy:', error);
+                alert('Error updating policy: ' + error.message);
+            }
+        }
+
+        // Permission Management Functions
+        async function createPermission() {
+            const name = document.getElementById('new-permission-name').value;
+            const description = document.getElementById('new-permission-description').value;
+            const resourceType = document.getElementById('new-permission-resource-type').value;
+            const resourceName = document.getElementById('new-permission-resource-name').value;
+            const fieldName = document.getElementById('new-permission-field-name').value;
+            const action = document.getElementById('new-permission-action').value;
+
+            try {
+                const response = await fetch(`${API_BASE}/permissions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({
+                        name: name,
+                        description: description,
+                        resource_type: resourceType,
+                        resource_name: resourceName || null,
+                        field_name: fieldName || null,
+                        action: action
+                    })
+                });
+
+                if (response.ok) {
+                    alert('Permission created successfully!');
+                    hideModal();
+                    loadPermissions();
+                } else {
+                    const errorText = await response.text();
+                    alert(`Failed to create permission: ${response.status} - ${errorText}`);
+                }
+            } catch (error) {
+                console.error('Error creating permission:', error);
+                alert('Error creating permission: ' + error.message);
+            }
+        }
+
+        async function loadPermissionForEdit(permissionId) {
+            try {
+                // Load all permissions and find the one we need
+                const response = await fetch(`${API_BASE}/permissions`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    const permissions = await response.json();
+                    const permission = permissions.find(p => p.id == permissionId);
+                    
+                    if (permission) {
+                        showEditPermissionForm(permission);
+                    } else {
+                        alert('Permission not found');
+                    }
+                } else {
+                    alert('Failed to load permissions');
+                }
+            } catch (error) {
+                console.error('Error loading permissions for edit:', error);
+                alert('Error loading permissions for editing');
+            }
+        }
+
+        function showEditPermissionForm(permission) {
+            const content = `
+                <form id="edit-permission-form">
+                    <input type="hidden" id="edit-permission-id" value="${permission.id}">
+                    <div class="form-group">
+                        <label for="edit-permission-name">Permission Name:</label>
+                        <input type="text" id="edit-permission-name" value="${permission.name || ''}" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-permission-description">Description:</label>
+                        <textarea id="edit-permission-description">${permission.description || ''}</textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-permission-resource-type">Resource Type:</label>
+                        <select id="edit-permission-resource-type" required>
+                            <option value="postgres" ${permission.resource_type === 'postgres' ? 'selected' : ''}>PostgreSQL</option>
+                            <option value="iceberg" ${permission.resource_type === 'iceberg' ? 'selected' : ''}>Iceberg</option>
+                            <option value="field" ${permission.resource_type === 'field' ? 'selected' : ''}>Field</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-permission-resource-name">Resource Name:</label>
+                        <input type="text" id="edit-permission-resource-name" value="${permission.resource_name || ''}" placeholder="* for all">
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-permission-field-name">Field Name:</label>
+                        <input type="text" id="edit-permission-field-name" value="${permission.field_name || ''}" placeholder="* for all">
+                    </div>
+                    <div class="form-group">
+                        <label for="edit-permission-action">Action:</label>
+                        <select id="edit-permission-action" required>
+                            <option value="query" ${permission.action === 'query' ? 'selected' : ''}>Query</option>
+                            <option value="read" ${permission.action === 'read' ? 'selected' : ''}>Read</option>
+                            <option value="write" ${permission.action === 'write' ? 'selected' : ''}>Write</option>
+                        </select>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">Update Permission</button>
+                        <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+                    </div>
+                </form>
+            `;
+            showModal('Edit Permission', content);
+            
+            // Add form submission handler
+            document.getElementById('edit-permission-form').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                await updatePermission();
+            });
+        }
+
+        async function updatePermission() {
+            const permissionId = document.getElementById('edit-permission-id').value;
+            const name = document.getElementById('edit-permission-name').value;
+            const description = document.getElementById('edit-permission-description').value;
+            const resourceType = document.getElementById('edit-permission-resource-type').value;
+            const resourceName = document.getElementById('edit-permission-resource-name').value;
+            const fieldName = document.getElementById('edit-permission-field-name').value;
+            const action = document.getElementById('edit-permission-action').value;
+
+            try {
+                const response = await fetch(`${API_BASE}/permissions/${permissionId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`
+                    },
+                    body: JSON.stringify({
+                        name: name,
+                        description: description,
+                        resource_type: resourceType,
+                        resource_name: resourceName || null,
+                        field_name: fieldName || null,
+                        action: action
+                    })
+                });
+
+                if (response.ok) {
+                    alert('Permission updated successfully!');
+                    hideModal();
+                    loadPermissions();
+                } else {
+                    const errorText = await response.text();
+                    alert(`Failed to update permission: ${response.status} - ${errorText}`);
+                }
+            } catch (error) {
+                console.error('Error updating permission:', error);
+                alert('Error updating permission: ' + error.message);
+            }
+        }
+
+        async function deletePermission(permissionId) {
+            if (!confirm('Are you sure you want to delete this permission? This action cannot be undone.')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/permissions/${permissionId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+
+                if (response.ok) {
+                    alert('Permission deleted successfully!');
+                    loadPermissions();
+                } else {
+                    alert('Failed to delete permission');
+                }
+            } catch (error) {
+                console.error('Error deleting permission:', error);
+                alert('Error deleting permission');
+            }
+        }
+
+        // Helper function to show modal
+        function showModal(title, content) {
+            const modal = document.getElementById('modal-overlay');
+            const modalTitle = document.getElementById('modal-title');
+            const modalBody = document.getElementById('modal-body');
+            
+            modalTitle.textContent = title;
+            modalBody.innerHTML = content;
+            modal.style.display = 'block';
+        }
+
+        // Helper function to hide modal
+        function hideModal() {
+            document.getElementById('modal-overlay').style.display = 'none';
+        }
+
+        // =============================================================================
+        // Cerbos Policy Management Functions
+        // =============================================================================
+
+        // Default Cerbos resource policy template
+        const defaultResourcePolicy = `apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: "default"
+  resource: "postgres"
+  
+  rules:
+    - actions: ["query"]
+      effect: EFFECT_ALLOW
+      roles: ["admin", "full_access_user"]
+    
+    - actions: ["query"]
+      effect: EFFECT_ALLOW
+      roles: ["postgres_only_user"]
+      condition:
+        match:
+          expr: |
+            !R.attr.body.contains("iceberg.")
+    
+    - actions: ["query"]
+      effect: EFFECT_DENY
+      roles: ["restricted_user"]
+      condition:
+        match:
+          expr: |
+            R.attr.body.matches("(?i).*\\\\b(ssn|SSN|social_security|social_security_number|ssn_number)\\\\b.*")
+`;
+
+        // Default Cerbos principal policy template
+        const defaultPrincipalPolicy = `apiVersion: api.cerbos.dev/v1
+principalPolicy:
+  version: "default"
+  principal: "user"
+  
+  rules:
+    - resource: "*"
+      actions: ["*"]
+      effect: EFFECT_ALLOW
+`;
+
+        let cerbosPolicyEditor = null;
+        let currentCerbosPolicyPath = null;
+
+        // Initialize Monaco editor for Cerbos policies
+        function initializeCerbosPolicyEditor() {
+            if (cerbosPolicyEditor) return; // Already initialized
+            
+            require.config({ paths: { 'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' }});
+            require(['vs/editor/editor.main'], function() {
+                const container = document.getElementById('cerbos-policy-editor-container');
+                if (container) {
+                    cerbosPolicyEditor = monaco.editor.create(container, {
+                        value: defaultResourcePolicy,
+                        language: 'yaml',
+                        theme: 'vs',
+                        minimap: { enabled: true },
+                        automaticLayout: true
+                    });
+                }
+            });
+        }
+
+        // Load Cerbos policies
+        async function loadCerbosPolicies() {
+            console.log('loadCerbosPolicies() called');
+            // Use authToken variable first, then fallback to localStorage
+            const token = authToken || localStorage.getItem('authToken');
+            console.log('Token available:', token ? 'present' : 'missing');
+            
+            if (!token) {
+                const policyOutput = document.getElementById('cerbos-policy-output');
+                if (policyOutput) {
+                    policyOutput.innerHTML = '<div class="policy-info">Please log in to view policies</div>';
+                } else {
+                    console.error('cerbos-policy-output element not found!');
+                }
+                return;
+            }
+            
+            const policyOutput = document.getElementById('cerbos-policy-output');
+            if (!policyOutput) {
+                console.error('cerbos-policy-output element not found!');
+                return;
+            }
+            
+            policyOutput.innerHTML = '<div class="loading-message">Loading Cerbos policies...</div>';
+            
+            try {
+                const url = `${API_BASE}/cerbos/policies`;
+                console.log('Loading Cerbos policies from:', url);
+                console.log('API_BASE:', API_BASE);
+                
+                const res = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                console.log('Response status:', res.status, res.statusText);
+                console.log('Response ok:', res.ok);
+                
+                if (!res.ok) {
+                    if (res.status === 401) {
+                        policyOutput.innerHTML = '<div class="policy-info">Authentication expired. Please log in again.</div>';
+                        return;
+                    }
+                    const errorText = await res.text();
+                    console.error('Error response:', errorText);
+                    throw new Error(`HTTP ${res.status}: ${errorText}`);
+                }
+                
+                const data = await res.json();
+                console.log('Policies data received:', data);
+                console.log('Number of policies:', data.policies ? data.policies.length : 0);
+                
+                if (!data.policies || data.policies.length === 0) {
+                    console.warn('No policies found in response');
+                    policyOutput.innerHTML = '<div class="policy-info">No Cerbos policies found. Click "Create New Policy" to add one.</div>';
+                    return;
+                }
+                
+                displayCerbosPolicies(data.policies || []);
+                
+            } catch (error) {
+                console.error('Error loading Cerbos policies:', error);
+                console.error('Error stack:', error.stack);
+                if (policyOutput) {
+                    policyOutput.innerHTML = `<div class="error-message">Error loading policies: ${error.message}</div>`;
+                }
+            }
+        }
+
+        // Display Cerbos policies in card layout
+        function displayCerbosPolicies(policies) {
+            const policyOutput = document.getElementById('cerbos-policy-output');
+            
+            if (!policies || policies.length === 0) {
+                policyOutput.innerHTML = '<div class="policy-info">No Cerbos policies found. Click "Create New Policy" to add one.</div>';
+                return;
+            }
+            
+            let html = `<div class="policies-list">`;
+            html += `<h4>Current Policies (${policies.length} total)</h4>`;
+            
+            policies.forEach(policy => {
+                const policyName = policy.path.split('/').pop().replace('.yaml', '').replace('.yml', '');
+                const policyType = policy.type || (policy.path.includes('principal') ? 'principal' : 'resource');
+                const resourceKind = policy.path.includes('iceberg') ? 'iceberg' : 
+                                    policy.path.includes('postgres') ? 'postgres' : 'unknown';
+                
+                // Extract version from content if available
+                let version = 'default';
+                if (policy.content) {
+                    const versionMatch = policy.content.match(/version:\s*"([^"]+)"/);
+                    if (versionMatch) {
+                        version = versionMatch[1];
+                    }
+                }
+                
+                html += `
+                    <div class="policy-item status-published" data-policy-path="${policy.path}">
+                        <div class="policy-header">
+                            <h5>${policyName}</h5>
+                            <span class="policy-status status-published">✅ PUBLISHED</span>
+                        </div>
+                        <div class="policy-details">
+                            <p><strong>Path:</strong> <code>${policy.path}</code></p>
+                            <p><strong>Type:</strong> ${policyType.charAt(0).toUpperCase() + policyType.slice(1)} Policy</p>
+                            ${policyType === 'resource' ? `<p><strong>Resource:</strong> ${resourceKind}</p>` : ''}
+                            <p><strong>Version:</strong> ${version}</p>
+                        </div>
+                        <div class="policy-actions">
+                            <button class="btn btn-small btn-primary view-cerbos-policy-btn" data-policy-path="${policy.path}">View Policy</button>
+                            <button class="btn btn-small btn-secondary edit-cerbos-policy-btn" data-policy-path="${policy.path}">Edit Policy</button>
+                            <button class="btn btn-small btn-danger delete-cerbos-policy-btn" data-policy-path="${policy.path}">Delete</button>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            policyOutput.innerHTML = html;
+            
+            // Attach event listeners
+            document.querySelectorAll('.view-cerbos-policy-btn').forEach(btn => {
+                btn.onclick = () => viewCerbosPolicy(btn.dataset.policyPath);
+            });
+            
+            document.querySelectorAll('.edit-cerbos-policy-btn').forEach(btn => {
+                btn.onclick = () => editCerbosPolicy(btn.dataset.policyPath);
+            });
+            
+            document.querySelectorAll('.delete-cerbos-policy-btn').forEach(btn => {
+                btn.onclick = () => deleteCerbosPolicy(btn.dataset.policyPath);
+            });
+        }
+
+        // View Cerbos policy (read-only)
+        async function viewCerbosPolicy(path) {
+            const token = authToken || localStorage.getItem('authToken');
+            
+            try {
+                const res = await fetch(`${API_BASE}/cerbos/policies/${encodeURIComponent(path)}`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+                }
+                
+                const policy = await res.json();
+                const policyName = path.split('/').pop();
+                const policyType = policy.content.includes('resourcePolicy') ? 'Resource' : 
+                                  policy.content.includes('principalPolicy') ? 'Principal' : 'Unknown';
+                
+                const content = `
+                    <div class="policy-content-viewer">
+                        <div class="policy-info">
+                            <p><strong>Path:</strong> <code>${policy.path}</code></p>
+                            <p><strong>Type:</strong> ${policyType} Policy</p>
+                        </div>
+                        <div class="policy-code">
+                            <h4>Policy Content:</h4>
+                            <pre><code>${escapeHtml(policy.content)}</code></pre>
+                        </div>
+                    </div>
+                `;
+                
+                showModal(`View Policy: ${policyName}`, content);
+                
+            } catch (error) {
+                alert(`Error loading policy: ${error.message}`);
+            }
+        }
+
+        // Edit Cerbos policy
+        async function editCerbosPolicy(path) {
+            const token = authToken || localStorage.getItem('authToken');
+            
+            try {
+                const res = await fetch(`${API_BASE}/cerbos/policies/${encodeURIComponent(path)}`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+                }
+                
+                const policy = await res.json();
+                currentCerbosPolicyPath = path;
+                
+                // Determine policy type and resource kind
+                const isResourcePolicy = policy.content.includes('resourcePolicy');
+                const isPrincipalPolicy = policy.content.includes('principalPolicy');
+                let resourceKind = 'postgres';
+                
+                if (isResourcePolicy) {
+                    const resourceMatch = policy.content.match(/resource:\s*"([^"]+)"/);
+                    if (resourceMatch) {
+                        resourceKind = resourceMatch[1];
+                    }
+                }
+                
+                // Set form values
+                document.getElementById('cerbos-modal-policy-path').value = path;
+                document.getElementById('cerbos-modal-policy-type').value = isPrincipalPolicy ? 'principal' : 'resource';
+                document.getElementById('cerbos-modal-resource-kind').value = resourceKind;
+                
+                // Initialize editor if needed
+                if (!cerbosPolicyEditor) {
+                    initializeCerbosPolicyEditor();
+                    // Wait for editor to initialize
+                    setTimeout(() => {
+                        if (cerbosPolicyEditor) {
+                            cerbosPolicyEditor.setValue(policy.content);
+                        }
+                    }, 500);
+                } else {
+                    cerbosPolicyEditor.setValue(policy.content);
+                }
+                
+                document.getElementById('cerbos-modal-title').textContent = `Edit Policy: ${path.split('/').pop()}`;
+                document.getElementById('cerbos-policy-validation-output').innerHTML = '';
+                document.getElementById('cerbos-policy-modal').style.display = 'block';
+                
+            } catch (error) {
+                alert(`Error loading policy: ${error.message}`);
+            }
+        }
+
+        // Create new Cerbos policy
+        function openCerbosPolicyModal(path) {
+            currentCerbosPolicyPath = path || null;
+            
+            // Reset form
+            document.getElementById('cerbos-modal-policy-path').value = path || '';
+            document.getElementById('cerbos-modal-policy-type').value = 'resource';
+            document.getElementById('cerbos-modal-resource-kind').value = 'postgres';
+            
+            // Initialize editor if needed
+            if (!cerbosPolicyEditor) {
+                initializeCerbosPolicyEditor();
+                setTimeout(() => {
+                    if (cerbosPolicyEditor) {
+                        const policyType = document.getElementById('cerbos-modal-policy-type').value;
+                        cerbosPolicyEditor.setValue(policyType === 'principal' ? defaultPrincipalPolicy : defaultResourcePolicy);
+                    }
+                }, 500);
+            } else {
+                const policyType = document.getElementById('cerbos-modal-policy-type').value;
+                cerbosPolicyEditor.setValue(policyType === 'principal' ? defaultPrincipalPolicy : defaultResourcePolicy);
+            }
+            
+            // Update resource kind when policy type changes
+            document.getElementById('cerbos-modal-policy-type').onchange = function() {
+                if (cerbosPolicyEditor) {
+                    const template = this.value === 'principal' ? defaultPrincipalPolicy : defaultResourcePolicy;
+                    cerbosPolicyEditor.setValue(template);
+                }
+            };
+            
+            // Update resource kind in editor when changed
+            document.getElementById('cerbos-modal-resource-kind').onchange = function() {
+                if (cerbosPolicyEditor && document.getElementById('cerbos-modal-policy-type').value === 'resource') {
+                    const content = cerbosPolicyEditor.getValue();
+                    const updated = content.replace(/resource:\s*"[^"]+"/, `resource: "${this.value}"`);
+                    cerbosPolicyEditor.setValue(updated);
+                }
+            };
+            
+            document.getElementById('cerbos-modal-title').textContent = path ? `Edit Policy: ${path.split('/').pop()}` : 'Create New Policy';
+            document.getElementById('cerbos-policy-validation-output').innerHTML = '';
+            document.getElementById('cerbos-policy-modal').style.display = 'block';
+        }
+
+        // Validate Cerbos policy
+        async function validateCerbosPolicy() {
+            if (!cerbosPolicyEditor) return;
+            
+            const content = cerbosPolicyEditor.getValue();
+            const token = authToken || localStorage.getItem('authToken');
+            const output = document.getElementById('cerbos-policy-validation-output');
+            
+            output.innerHTML = '<div class="loading-message">Validating...</div>';
+            
+            try {
+                const res = await fetch(`${API_BASE}/cerbos/policies/validate`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify({ content })
+                });
+                
+                const result = await res.json();
+                
+                if (result.valid) {
+                    output.innerHTML = '<div class="success-message">✅ Policy is valid!</div>';
+                } else {
+                    output.innerHTML = `<div class="error-message">❌ Validation errors:<br>${result.errors.join('<br>')}</div>`;
+                }
+            } catch (error) {
+                output.innerHTML = `<div class="error-message">Error: ${error.message}</div>`;
+            }
+        }
+
+        // Save Cerbos policy
+        async function saveCerbosPolicy() {
+            if (!cerbosPolicyEditor) return;
+            
+            const content = cerbosPolicyEditor.getValue();
+            const path = document.getElementById('cerbos-modal-policy-path').value;
+            const token = authToken || localStorage.getItem('authToken');
+            
+            if (!path) {
+                alert('Please enter a policy path');
+                return;
+            }
+            
+            // Validate first
+            await validateCerbosPolicy();
+            const validationOutput = document.getElementById('cerbos-policy-validation-output').innerHTML;
+            if (validationOutput.includes('❌')) {
+                alert('Please fix validation errors before saving');
+                return;
+            }
+            
+            try {
+                let res;
+                if (currentCerbosPolicyPath) {
+                    // Update existing policy
+                    res = await fetch(`${API_BASE}/cerbos/policies/${encodeURIComponent(currentCerbosPolicyPath)}`, {
+                        method: 'PUT',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ content })
+                    });
+                } else {
+                    // Create new policy
+                    res = await fetch(`${API_BASE}/cerbos/policies`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ path, content })
+                    });
+                }
+                
+                if (!res.ok) {
+                    const errorText = await res.text();
+                    throw new Error(`HTTP ${res.status}: ${errorText}`);
+                }
+                
+                alert('Policy saved successfully! Cerbos will automatically reload policies.');
+                closeCerbosPolicyModal();
+                await loadCerbosPolicies();
+                
+            } catch (error) {
+                alert(`Error saving policy: ${error.message}`);
+            }
+        }
+
+        // Delete Cerbos policy
+        async function deleteCerbosPolicy(path) {
+            if (!confirm(`Are you sure you want to delete the policy "${path}"?`)) {
+                return;
+            }
+            
+            const token = authToken || localStorage.getItem('authToken');
+            
+            try {
+                const res = await fetch(`${API_BASE}/cerbos/policies/${encodeURIComponent(path)}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+                }
+                
+                alert('Policy deleted successfully!');
+                await loadCerbosPolicies();
+                
+            } catch (error) {
+                alert(`Error deleting policy: ${error.message}`);
+            }
+        }
+
+        // Close Cerbos policy modals
+        function closeCerbosPolicyModal() {
+            document.getElementById('cerbos-policy-modal').style.display = 'none';
+            currentCerbosPolicyPath = null;
+        }
+
+        // Utility function for HTML escaping
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Initialize Cerbos policy editor buttons
+        function initializeCerbosPolicyButtons() {
+            const createBtn = document.getElementById('create-cerbos-policy-btn');
+            const refreshBtn = document.getElementById('refresh-cerbos-policies');
+            const validateBtn = document.getElementById('cerbos-validate-policy-btn');
+            const saveBtn = document.getElementById('cerbos-save-policy-btn');
+            
+            if (createBtn) {
+                // Remove old listeners and add new ones
+                const newCreateBtn = createBtn.cloneNode(true);
+                createBtn.parentNode.replaceChild(newCreateBtn, createBtn);
+                newCreateBtn.addEventListener('click', () => openCerbosPolicyModal(null));
+            }
+            if (refreshBtn) {
+                const newRefreshBtn = refreshBtn.cloneNode(true);
+                refreshBtn.parentNode.replaceChild(newRefreshBtn, refreshBtn);
+                newRefreshBtn.addEventListener('click', loadCerbosPolicies);
+            }
+            if (validateBtn) {
+                const newValidateBtn = validateBtn.cloneNode(true);
+                validateBtn.parentNode.replaceChild(newValidateBtn, validateBtn);
+                newValidateBtn.addEventListener('click', validateCerbosPolicy);
+            }
+            if (saveBtn) {
+                const newSaveBtn = saveBtn.cloneNode(true);
+                saveBtn.parentNode.replaceChild(newSaveBtn, saveBtn);
+                newSaveBtn.addEventListener('click', saveCerbosPolicy);
+            }
+        }
+        
+        // Initialize after DOM is ready
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeCerbosPolicyButtons);
+        } else {
+            // Wait a bit for elements to be available
+            setTimeout(initializeCerbosPolicyButtons, 500);
+        }
+
+        // =============================================================================
+        // Cerbos Logs Functions
+        // =============================================================================
+
+        let cerbosLogsInterval = null;
+
+        // Load Cerbos logs
+        async function loadCerbosLogs() {
+            const token = authToken || localStorage.getItem('authToken');
+            if (!token) {
+                document.getElementById('cerbos-logs-output').innerHTML = '<div class="policy-info">Please log in to view logs</div>';
+                return;
+            }
+            
+            const logsOutput = document.getElementById('cerbos-logs-output');
+            
+            try {
+                const res = await fetch(`${API_BASE}/cerbos/logs?lines=200`, {
+                    headers: {
+                        'Authorization': `Bearer ${token}`
+                    }
+                });
+                
+                if (!res.ok) {
+                    if (res.status === 401) {
+                        logsOutput.innerHTML = '<div class="policy-info">Authentication expired. Please log in again.</div>';
+                        return;
+                    }
+                    throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+                }
+                
+                const data = await res.json();
+                
+                if (data.error) {
+                    logsOutput.innerHTML = `<div class="error-message">Error loading logs: ${data.error}</div>`;
+                    return;
+                }
+                
+                displayCerbosLogs(data.logs || []);
+                
+            } catch (error) {
+                console.error('Error loading Cerbos logs:', error);
+                logsOutput.innerHTML = `<div class="error-message">Error loading logs: ${error.message}</div>`;
+            }
+        }
+
+        // Display Cerbos logs
+        function displayCerbosLogs(logs) {
+            const logsOutput = document.getElementById('cerbos-logs-output');
+            
+            if (!logs || logs.length === 0) {
+                logsOutput.innerHTML = '<div class="policy-info">No logs available. Try running a query to generate authorization logs.</div>';
+                return;
+            }
+            
+            // Sort logs by timestamp (newest first)
+            // Handle various timestamp formats
+            const sortedLogs = [...logs].sort((a, b) => {
+                const timestampA = a.timestamp || '';
+                const timestampB = b.timestamp || '';
+                
+                // If timestamps are empty, put them at the end
+                if (!timestampA && !timestampB) return 0;
+                if (!timestampA) return 1;
+                if (!timestampB) return -1;
+                
+                // Parse timestamps and compare (newest first = descending)
+                const dateA = new Date(timestampA).getTime();
+                const dateB = new Date(timestampB).getTime();
+                
+                // Handle invalid dates
+                if (isNaN(dateA) && isNaN(dateB)) return 0;
+                if (isNaN(dateA)) return 1;
+                if (isNaN(dateB)) return -1;
+                
+                // Return negative if B is newer (should come first), so dateB - dateA
+                return dateB - dateA;
+            }).slice(0, 200); // Show up to 200 entries
+            
+            // Use sorted logs directly (maintain chronological order)
+            const displayLogs = sortedLogs;
+            
+            let html = '<div class="logs-container">';
+            html += `<div class="logs-count">Showing ${displayLogs.length} log entries (newest first)</div>`;
+            
+            displayLogs.forEach(log => {
+                const isAuthzDecision = log.method && log.method.includes('CheckResources') || log.type === 'authorization';
+                const logClass = isAuthzDecision ? 'log-entry authz-decision' : 'log-entry';
+                const timestamp = log.timestamp ? new Date(log.timestamp).toLocaleString() : new Date().toLocaleString();
+                const levelClass = `log-level log-level-${log.level || 'info'}`;
+                
+                html += `<div class="${logClass}">`;
+                
+                if (isAuthzDecision) {
+                    html += `<div class="log-header">`;
+                    html += `<span class="log-badge">🔐 Authorization Decision</span>`;
+                    if (log.decision) {
+                        const decisionClass = log.decision === 'ALLOW' ? 'effect-allow' : 'effect-deny';
+                        html += `<span class="log-decision ${decisionClass}">${log.decision}</span>`;
+                    }
+                    if (log.call_id && log.call_id !== 'no-call-id') {
+                        html += `<span class="log-call-id">ID: ${log.call_id.substring(0, 12)}...</span>`;
+                    }
+                    html += `</div>`;
+                }
+                
+                html += `<div class="log-line">`;
+                html += `<span class="log-time">${timestamp}</span>`;
+                html += `<span class="${levelClass}">${(log.level || 'info').toUpperCase()}</span>`;
+                
+                if (log.message) {
+                    let message = log.message;
+                    // Format authorization messages
+                    if (isAuthzDecision || message.includes('Authorization Decision')) {
+                        message = formatAuthzMessage(message, log);
+                    }
+                    html += `<span class="log-message">${message}</span>`;
+                } else if (log.raw) {
+                    html += `<span class="log-message">${escapeHtml(log.raw)}</span>`;
+                }
+                
+                html += `</div>`;
+                html += `</div>`;
+            });
+            
+            html += '</div>';
+            logsOutput.innerHTML = html;
+            
+            // Auto-scroll to top (newest logs are first)
+            logsOutput.scrollTop = 0;
+        }
+
+        // Format authorization messages for better readability
+        function formatAuthzMessage(message, log) {
+            // Escape HTML first
+            message = escapeHtml(message);
+            
+            // Highlight decision keywords
+            message = message.replace(/\b(ALLOW|ALLOWED)\b/g, '<strong class="effect-allow">✓ $1</strong>');
+            message = message.replace(/\b(DENY|DENIED)\b/g, '<strong class="effect-deny">✗ $1</strong>');
+            
+            // Highlight key-value pairs
+            message = message.replace(/(User|Roles|Resource|Action|Query|Reason):\s*([^|]+)/g, 
+                '<span class="log-key">$1:</span> <span class="log-value">$2</span>');
+            
+            // Highlight resource and principal info
+            message = message.replace(/resource:(\w+)/gi, '<span class="highlight-resource">resource:$1</span>');
+            message = message.replace(/principal:(\w+)/gi, '<span class="highlight-principal">principal:$1</span>');
+            
+            // Highlight email addresses
+            message = message.replace(/([\w.-]+@[\w.-]+\.\w+)/g, '<span class="highlight-email">$1</span>');
+            
+            return message;
+        }
+
+        // Toggle auto-refresh
+        function setupCerbosLogsAutoRefresh() {
+            const autoRefreshCheckbox = document.getElementById('auto-refresh-logs');
+            const refreshBtn = document.getElementById('refresh-cerbos-logs');
+            const clearBtn = document.getElementById('clear-cerbos-logs');
+            
+            if (refreshBtn) {
+                refreshBtn.addEventListener('click', loadCerbosLogs);
+            }
+            
+            if (clearBtn) {
+                clearBtn.addEventListener('click', () => {
+                    document.getElementById('cerbos-logs-output').innerHTML = '<div class="policy-info">Logs cleared. Click "Refresh Logs" to reload.</div>';
+                });
+            }
+            
+            if (autoRefreshCheckbox) {
+                autoRefreshCheckbox.addEventListener('change', function() {
+                    if (this.checked) {
+                        cerbosLogsInterval = setInterval(loadCerbosLogs, 5000);
+                    } else {
+                        if (cerbosLogsInterval) {
+                            clearInterval(cerbosLogsInterval);
+                            cerbosLogsInterval = null;
+                        }
+                    }
+                });
+                
+                // Start auto-refresh if checked
+                if (autoRefreshCheckbox.checked) {
+                    cerbosLogsInterval = setInterval(loadCerbosLogs, 5000);
+                }
+            }
+        }
+
+        // Initialize Cerbos logs when tab is clicked
+        const originalInitializeTabsForLogs = initializeTabs;
+        initializeTabs = function() {
+            originalInitializeTabsForLogs();
+            
+            // Override tab click to load logs when cerbos-logs tab is opened
+            const tabBtns = document.querySelectorAll('.tab-btn');
+            tabBtns.forEach(btn => {
+                btn.addEventListener('click', function() {
+                    if (this.dataset.tab === 'cerbos-logs') {
+                        setTimeout(() => {
+                            loadCerbosLogs();
+                            setupCerbosLogsAutoRefresh();
+                        }, 100);
+                    } else {
+                        // Stop auto-refresh when leaving the logs tab
+                        if (cerbosLogsInterval) {
+                            clearInterval(cerbosLogsInterval);
+                            cerbosLogsInterval = null;
+                        }
+                    }
+                }, true);
+            });
+        };
+
+    </script>
+</body>
+</html> 

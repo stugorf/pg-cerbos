@@ -1,0 +1,273 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>Cerbos Policy Management</title>
+        <link rel="stylesheet" href="auth-styles.css" />
+        <style>
+            /* Sidebar Layout Styles */
+            .app-container {
+                display: flex;
+                min-height: 100vh;
+                background: #f8f9fa;
+            }
+            
+            .sidebar {
+                width: 250px;
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                color: white;
+                padding: 20px;
+                box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+            }
+            
+            .sidebar-header {
+                margin-bottom: 30px;
+                text-align: center;
+            }
+            
+            .logo-image-sidebar {
+                height: 80px;
+                width: auto;
+                object-fit: contain;
+            }
+            
+            .sidebar-nav {
+                display: flex;
+                flex-direction: column;
+                gap: 10px;
+            }
+            
+            .nav-item {
+                padding: 12px 16px;
+                color: rgba(255,255,255,0.9);
+                text-decoration: none;
+                border-radius: 8px;
+                transition: all 0.2s ease;
+                display: flex;
+                align-items: center;
+            }
+            
+            .nav-item:hover {
+                background: rgba(255,255,255,0.1);
+                color: white;
+            }
+            
+            .nav-item.active {
+                background: rgba(255,255,255,0.2);
+                color: white;
+                font-weight: 600;
+            }
+            
+            .main-content {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+            }
+            
+            .content-header {
+                background: white;
+                padding: 20px 30px;
+                border-bottom: 1px solid #e1e5e9;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+            
+            .content-header h1 {
+                margin: 0;
+                color: #333;
+                font-size: 24px;
+            }
+            
+            .content-main {
+                flex: 1;
+                padding: 30px;
+                overflow-y: auto;
+            }
+            
+            .policies-list-container {
+                background: white;
+                border-radius: 8px;
+                padding: 20px;
+            }
+            
+            .policies-list h4 {
+                margin: 0 0 20px 0;
+                color: #333;
+                font-size: 18px;
+            }
+            
+            .loading-message {
+                text-align: center;
+                padding: 40px;
+                color: #6c757d;
+            }
+            
+            .error-message {
+                background: #f8d7da;
+                color: #721c24;
+                padding: 12px;
+                border-radius: 6px;
+                margin: 10px 0;
+            }
+            
+            .success-message {
+                background: #d4edda;
+                color: #155724;
+                padding: 12px;
+                border-radius: 6px;
+                margin: 10px 0;
+            }
+            
+            .validation-output {
+                margin-top: 15px;
+            }
+            
+            .policy-form .form-group {
+                margin-bottom: 20px;
+            }
+            
+            .policy-form label {
+                display: block;
+                margin-bottom: 8px;
+                color: #333;
+                font-weight: 500;
+            }
+            
+            .policy-form input,
+            .policy-form select {
+                width: 100%;
+                padding: 10px;
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                font-size: 14px;
+            }
+            
+            .modal-large {
+                max-width: 900px;
+                width: 90%;
+            }
+            
+            .modal-footer {
+                display: flex;
+                gap: 10px;
+                justify-content: flex-end;
+                padding: 20px;
+                border-top: 1px solid #e1e5e9;
+            }
+        </style>
+        <script>window.API_BASE = (new URL(document.location)).searchParams.get("api") || "http://localhost:8082";</script>
+        <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+    </head>
+    <body>
+        <div class="app-container">
+            <!-- Sidebar Navigation -->
+            <div class="sidebar">
+                <div class="sidebar-header">
+                    <img src="images/EKgo.png" alt="EK Logo" class="logo-image-sidebar">
+                </div>
+                <nav class="sidebar-nav">
+                    <a href="query.html" class="nav-item">
+                        <span>📊 SQL Query</span>
+                    </a>
+                    <a href="cerbos-policy-editor.html" class="nav-item active">
+                        <span>📝 Policy Management</span>
+                    </a>
+                    <a href="auth.html" class="nav-item">
+                        <span>👥 User Management</span>
+                    </a>
+                    <a href="auth.html" class="nav-item">
+                        <span>🔐 Role Management</span>
+                    </a>
+                    <a href="auth.html" class="nav-item">
+                        <span>🔑 Permission Management</span>
+                    </a>
+                </nav>
+            </div>
+
+            <!-- Main Content -->
+            <div class="main-content">
+                <header class="content-header">
+                    <h1>Policy Management</h1>
+                    <div id="user-info" class="user-info"></div>
+                </header>
+
+                <main class="content-main">
+                    <!-- Policy Management Tab -->
+                    <div id="policies-tab" class="tab-pane active">
+                        <div class="policy-editor">
+                            <div class="editor-controls">
+                                <button id="create-policy-btn" class="btn btn-primary">Create New Policy</button>
+                                <button id="refresh-policies" class="btn btn-secondary">Refresh Policies</button>
+                            </div>
+                            <div id="policy-output" class="policies-list-container">
+                                <div class="loading-message">Loading policies...</div>
+                            </div>
+                        </div>
+                    </div>
+                </main>
+            </div>
+        </div>
+
+        <!-- Policy Editor Modal -->
+        <div id="policy-modal" class="modal-overlay" style="display: none;">
+            <div class="modal modal-large">
+                <div class="modal-header">
+                    <h3 id="modal-title">Edit Cerbos Policy</h3>
+                    <button class="modal-close" onclick="closePolicyModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="policy-form">
+                        <div class="form-group">
+                            <label for="modal-policy-path">Policy Path:</label>
+                            <input type="text" id="modal-policy-path" placeholder="e.g. resource_policies/postgres.yaml" />
+                        </div>
+                        <div class="form-group">
+                            <label for="modal-policy-type">Policy Type:</label>
+                            <select id="modal-policy-type">
+                                <option value="resource">Resource Policy</option>
+                                <option value="principal">Principal Policy</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="modal-resource-kind">Resource Kind (for Resource Policies):</label>
+                            <select id="modal-resource-kind">
+                                <option value="postgres">PostgreSQL</option>
+                                <option value="iceberg">Iceberg</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Policy Content (YAML):</label>
+                            <div id="policy-editor-container" style="height: 400px; border: 1px solid #ddd; margin-top: 8px;"></div>
+                        </div>
+                        <div id="policy-validation-output" class="validation-output"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="validate-policy-btn" class="btn btn-secondary">Validate</button>
+                    <button id="save-policy-btn" class="btn btn-primary">Save Policy</button>
+                    <button onclick="closePolicyModal()" class="btn btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Policy Viewer Modal -->
+        <div id="view-modal" class="modal-overlay" style="display: none;">
+            <div class="modal modal-large">
+                <div class="modal-header">
+                    <h3 id="view-modal-title">View Cerbos Policy</h3>
+                    <button class="modal-close" onclick="closeViewModal()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div id="view-modal-content"></div>
+                </div>
+                <div class="modal-footer">
+                    <button onclick="closeViewModal()" class="btn btn-primary">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <script src="cerbos-policy-editor.js"></script>
+    </body>
+</html>

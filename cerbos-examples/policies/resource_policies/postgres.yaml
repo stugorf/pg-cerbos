@@ -1,0 +1,51 @@
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: "default"
+  resource: "postgres"
+  
+  rules:
+    # Admin: Full access to everything
+    - actions: ["query", "read", "write"]
+      effect: EFFECT_ALLOW
+      roles: ["admin"]
+    
+    # Full Access User: Can query postgres
+    - actions: ["query"]
+      effect: EFFECT_ALLOW
+      roles: ["full_access_user"]
+      condition:
+        match:
+          expr: |
+            R.attr.method == "POST" && 
+            R.attr.path.startsWith("/v1/statement")
+    
+    # Postgres-Only User: Can query postgres but not iceberg
+    - actions: ["query"]
+      effect: EFFECT_ALLOW
+      roles: ["postgres_only_user"]
+      condition:
+        match:
+          expr: |
+            R.attr.method == "POST" && 
+            R.attr.path.startsWith("/v1/statement") &&
+            !R.attr.body.contains("iceberg.")
+    
+    # Restricted User: Can query postgres but not SSN fields
+    - actions: ["query"]
+      effect: EFFECT_ALLOW
+      roles: ["restricted_user"]
+      condition:
+        match:
+          expr: |
+            R.attr.method == "POST" && 
+            R.attr.path.startsWith("/v1/statement") &&
+            !R.attr.body.matches("(?i).*\\b(ssn|SSN|social_security|social_security_number|ssn_number)\\b.*")
+    
+    # Restricted User: Explicitly deny SSN field access
+    - actions: ["query"]
+      effect: EFFECT_DENY
+      roles: ["restricted_user"]
+      condition:
+        match:
+          expr: |
+            R.attr.body.matches("(?i).*\\b(ssn|SSN|social_security|social_security_number|ssn_number)\\b.*")

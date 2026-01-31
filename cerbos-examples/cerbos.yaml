@@ -1,0 +1,43 @@
+# Cerbos Configuration for UES MVP
+# This file configures Cerbos to use file-based storage for policies
+# In production, consider using Git-based storage for GitOps workflows
+
+server:
+  httpListenAddr: ":3593"
+  grpcListenAddr: ":3593"
+  playgroundEnabled: true  # Enable playground for testing (disable in production)
+  
+storage:
+  driver: "disk"
+  disk:
+    directory: /policies
+    watchForChanges: true  # Auto-reload policies on file changes
+
+# Audit logging configuration
+audit:
+  enabled: true
+  backend: "local"
+  local:
+    storagePath: /tmp/cerbos-audit
+    retentionPeriod: 168h  # 7 days
+    advanced:
+      bufferSize: 256
+      flushInterval: 1s
+      gcInterval: 60s
+      maxBatchSize: 32
+
+# Telemetry (disable in production if not needed)
+telemetry:
+  enabled: false
+
+# Logging configuration
+log:
+  level: info
+  format: json  # Use json for structured logging
+
+# Request validation
+requestValidation:
+  enabled: true
+  schema:
+    principal: "_schemas/principal.json"
+    resource: "_schemas/resource.json"

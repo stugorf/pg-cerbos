@@ -1,0 +1,55 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>Policy Editor</title>
+        <link rel="stylesheet" href="styles.css" />
+        <script>window.API_BASE = (new URL(document.location)).searchParams.get("api") || "http://localhost:8082";</script>
+        <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
+    </head>
+    <body>
+        <header>
+            <!-- EK Logo -->
+            <div class="ek-logo-header">
+                <img src="images/EKgo.png" alt="EK Logo" class="logo-image-header">
+            </div>
+            <h1>Policy Management</h1>
+            <nav style="margin-top: 10px;">
+                <a href="cerbos-policy-editor.html" style="margin-right: 15px;">Cerbos Policy Editor</a>
+                <a href="query.html" style="margin-right: 15px;">SQL Query Interface</a>
+                <a href="auth.html" style="margin-right: 15px;">Authentication</a>
+                <a href="index.html?legacy=1">Legacy OPA Editor</a>
+            </nav>
+        </header>
+        <main>
+            <section>
+                <h2>Welcome to Unified Entitlements MVP</h2>
+                <p>This system uses <strong>Cerbos</strong> for authorization policies.</p>
+                <ul>
+                    <li><a href="cerbos-policy-editor.html">Cerbos Policy Editor</a> - Edit YAML policies for PostgreSQL and Iceberg</li>
+                    <li><a href="query.html">SQL Query Interface</a> - Execute SQL queries with Cerbos authorization</li>
+                    <li><a href="auth.html">Authentication</a> - Login and user management</li>
+                </ul>
+            </section>
+            <section id="legacy-section" style="display: none;">
+                <h2>Legacy OPA Policy Editor</h2>
+                <button id="refresh">Refresh Policies</button>
+                <button id="publish">Publish Current</button>
+                <input id="name" placeholder="name" value="envoy_authz_custom" />
+                <input id="path" placeholder="path (e.g. envoy/authz.rego)" value="envoy/authz.rego" />
+                <div id="editor"></div>
+                <pre id="out"></pre>
+            </section>
+        </main>
+        <script>
+            // Show legacy editor if ?legacy=1 is in URL
+            if (new URLSearchParams(window.location.search).get('legacy') === '1') {
+                document.getElementById('legacy-section').style.display = 'block';
+                // Load legacy app.js
+                const script = document.createElement('script');
+                script.src = 'app.js';
+                document.body.appendChild(script);
+            }
+        </script>
+    </body>
+</html>

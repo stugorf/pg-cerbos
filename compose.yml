@@ -1,0 +1,179 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: mvp-postgres
+    environment:
+      POSTGRES_USER: ${PG_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${PG_SUPERPASS:-postgres}
+    ports: ["5434:5432"]
+    volumes:
+      - ./postgres/init:/docker-entrypoint-initdb.d
+      - pg_data:/var/lib/postgresql/data
+    networks: [trino-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_SUPERUSER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  query-results-db:
+    image: postgres:16
+    container_name: mvp-query-results
+    environment:
+      POSTGRES_USER: ${PG_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${PG_SUPERPASS:-postgres}
+      POSTGRES_DB: query_results
+    ports: ["5433:5432"]
+    volumes:
+      - ./postgres/init:/docker-entrypoint-initdb.d
+      - query_results_data:/var/lib/postgresql/data
+    networks: [trino-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_SUPERUSER:-postgres} -d query_results"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  minio:
+    image: quay.io/minio/minio
+    container_name: mvp-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASS:-minio123}
+    ports: ["9000:9000","9001:9001"]
+    volumes:
+      - minio_data:/data
+      - ./scripts/init-minio.sh:/docker-entrypoint-initdb.d/init-minio.sh:ro
+    networks: [trino-net]
+
+  nessie:
+    image: ghcr.io/projectnessie/nessie:latest
+    container_name: mvp-nessie
+    ports: ["19120:19120"]
+    environment:
+      NESSIE_VERSION_STORE_TYPE: JDBC2
+      NESSIE_VERSION_STORE_PERSIST_JDBC_DATASOURCE: postgresql
+      QUARKUS_DATASOURCE_POSTGRESQL_JDBC_URL: jdbc:postgresql://postgres:5432/nessie
+      QUARKUS_DATASOURCE_POSTGRESQL_USERNAME: nessie
+      QUARKUS_DATASOURCE_POSTGRESQL_PASSWORD: nessie
+      NESSIE_DEFAULT_BRANCH: main
+      NESSIE_CATALOG_DEFAULT_WAREHOUSE: warehouse
+      NESSIE_CATALOG_WAREHOUSES_WAREHOUSE_LOCATION: s3a://warehouse/
+    volumes:
+      - nessie_data:/var/lib/nessie
+    depends_on: [postgres]
+    networks: [trino-net]
+
+  trino-coordinator:
+    image: trinodb/trino:474
+    container_name: mvp-trino-coordinator
+    environment:
+      - PG_SUPERUSER=${PG_SUPERUSER:-postgres}
+      - PG_SUPERPASS=${PG_SUPERPASS:-postgres}
+      - MINIO_USER=${MINIO_USER:-minio}
+      - MINIO_PASS=${MINIO_PASS:-minio123}
+    volumes:
+      - ./trino/coordinator:/etc/trino:ro
+    ports: ["8080:8080"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      nessie:
+        condition: service_started
+    networks: [trino-net]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/v1/info || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  trino-worker:
+    image: my-trino-worker:474-enhanced
+    container_name: mvp-trino-worker
+    environment:
+      - PG_SUPERUSER=${PG_SUPERUSER:-postgres}
+      - PG_SUPERPASS=${PG_SUPERPASS:-postgres}
+      - MINIO_USER=${MINIO_USER:-minio}
+      - MINIO_PASS=${MINIO_PASS:-minio123}
+    volumes:
+      - ./trino/worker:/etc/trino:ro
+    depends_on: [trino-coordinator]
+    networks: [trino-net]
+
+
+  # Lightweight policy-registry: FastAPI + Postgres (policy_store DB)
+  policy-registry-backend:
+    build: ./policy-registry/backend
+    container_name: mvp-policy-registry
+    environment:
+      DATABASE_URL: postgresql+psycopg2://${PG_SUPERUSER:-postgres}:${PG_SUPERPASS:-postgres}@postgres:5432/policy_store
+      QUERY_DB_HOST: query-results-db
+      QUERY_DB_PORT: 5432
+      QUERY_DB_NAME: query_results
+      PG_SUPERUSER: ${PG_SUPERUSER:-postgres}
+      PG_SUPERPASS: ${PG_SUPERPASS:-postgres}
+      BIND_HOST: 0.0.0.0
+      BIND_PORT: 8080
+      CORS_ORIGINS: http://localhost:8083
+      SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-in-production}
+      TRINO_URL: http://trino-coordinator:8080/v1/statement
+      CERBOS_URL: cerbos:3593
+    ports: ["8082:8080"]
+    volumes:
+      - ./cerbos/policies:/policies:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      query-results-db:
+        condition: service_healthy
+      trino-coordinator:
+        condition: service_healthy
+      cerbos:
+        condition: service_started
+    networks: [trino-net]
+
+  policy-registry-frontend:
+    build: ./policy-registry/frontend
+    container_name: mvp-policy-ui
+    ports: ["8083:80"]
+    environment:
+      API_BASE: http://localhost:8082
+    networks: [trino-net]
+
+  # Cerbos Policy Decision Point
+  cerbos:
+    image: ghcr.io/cerbos/cerbos:latest
+    container_name: mvp-cerbos
+    command:
+      - server
+      - --config=/config/cerbos.yaml
+    volumes:
+      - ./cerbos/policies:/policies:ro
+      - ./cerbos/cerbos.yaml:/config/cerbos.yaml:ro
+    ports:
+      - "3593:3593"
+    networks: [trino-net]
+    # Healthcheck disabled - Cerbos doesn't include curl by default
+    # Service is working (verified via external curl)
+    # healthcheck:
+    #   test: ["CMD-SHELL", "wget --spider -q http://localhost:3593/_cerbos/health || exit 1"]
+    #   interval: 10s
+    #   timeout: 5s
+    #   retries: 5
+    #   start_period: 15s
+
+
+volumes:
+  pg_data:
+  query_results_data:
+  minio_data:
+  nessie_data:
+
+networks:
+  trino-net: {}

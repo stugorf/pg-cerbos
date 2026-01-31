@@ -1,0 +1,164 @@
+name: "UES MVP Authorization Test Suite"
+description: "Comprehensive test suite for postgres and iceberg access control"
+
+principals:
+  admin:
+    id: "1"
+    roles: ["admin"]
+    attr:
+      email: "admin@ues-mvp.com"
+      is_active: true
+  
+  full_access:
+    id: "2"
+    roles: ["full_access_user"]
+    attr:
+      email: "fullaccess@ues-mvp.com"
+      is_active: true
+  
+  postgres_only:
+    id: "3"
+    roles: ["postgres_only_user"]
+    attr:
+      email: "postgresonly@ues-mvp.com"
+      is_active: true
+  
+  restricted:
+    id: "4"
+    roles: ["restricted_user"]
+    attr:
+      email: "restricted@ues-mvp.com"
+      is_active: true
+
+resources:
+  postgres_query:
+    kind: "postgres"
+    id: "query-001"
+    attr:
+      catalog: "postgres"
+      schema: "public"
+      table: "person"
+      query: "SELECT * FROM postgres.public.person LIMIT 5"
+      method: "POST"
+      path: "/v1/statement"
+      body: "SELECT * FROM postgres.public.person LIMIT 5"
+  
+  iceberg_query:
+    kind: "iceberg"
+    id: "query-002"
+    attr:
+      catalog: "iceberg"
+      schema: "demo"
+      table: "employee_performance"
+      query: "SELECT * FROM iceberg.demo.employee_performance ORDER BY performance_score DESC"
+      method: "POST"
+      path: "/v1/statement"
+      body: "SELECT * FROM iceberg.demo.employee_performance ORDER BY performance_score DESC"
+  
+  postgres_ssn_query:
+    kind: "postgres"
+    id: "query-003"
+    attr:
+      catalog: "postgres"
+      schema: "public"
+      table: "person"
+      field: "ssn"
+      query: "SELECT ssn FROM postgres.public.person LIMIT 5"
+      method: "POST"
+      path: "/v1/statement"
+      body: "SELECT ssn FROM postgres.public.person LIMIT 5"
+  
+  iceberg_ssn_query:
+    kind: "iceberg"
+    id: "query-004"
+    attr:
+      catalog: "iceberg"
+      schema: "demo"
+      table: "employee_performance"
+      query: "SELECT ssn FROM iceberg.demo.employee_performance"
+      method: "POST"
+      path: "/v1/statement"
+      body: "SELECT ssn FROM iceberg.demo.employee_performance"
+
+tests:
+  # Admin tests
+  - name: "Admin can query postgres"
+    principals: ["admin"]
+    resources: ["postgres_query"]
+    actions: ["query"]
+    expected: EFFECT_ALLOW
+  
+  - name: "Admin can query iceberg"
+    principals: ["admin"]
+    resources: ["iceberg_query"]
+    actions: ["query"]
+    expected: EFFECT_ALLOW
+  
+  - name: "Admin can query SSN fields in postgres"
+    principals: ["admin"]
+    resources: ["postgres_ssn_query"]
+    actions: ["query"]
+    expected: EFFECT_ALLOW
+  
+  # Full access user tests
+  - name: "Full access user can query postgres"
+    principals: ["full_access"]
+    resources: ["postgres_query"]
+    actions: ["query"]
+    expected: EFFECT_ALLOW
+  
+  - name: "Full access user can query iceberg"
+    principals: ["full_access"]
+    resources: ["iceberg_query"]
+    actions: ["query"]
+    expected: EFFECT_ALLOW
+  
+  - name: "Full access user can query SSN fields"
+    principals: ["full_access"]
+    resources: ["postgres_ssn_query"]
+    actions: ["query"]
+    expected: EFFECT_ALLOW
+  
+  # Postgres-only user tests
+  - name: "Postgres-only user can query postgres"
+    principals: ["postgres_only"]
+    resources: ["postgres_query"]
+    actions: ["query"]
+    expected: EFFECT_ALLOW
+  
+  - name: "Postgres-only user cannot query iceberg"
+    principals: ["postgres_only"]
+    resources: ["iceberg_query"]
+    actions: ["query"]
+    expected: EFFECT_DENY
+  
+  - name: "Postgres-only user can query SSN in postgres"
+    principals: ["postgres_only"]
+    resources: ["postgres_ssn_query"]
+    actions: ["query"]
+    expected: EFFECT_ALLOW
+  
+  # Restricted user tests
+  - name: "Restricted user can query postgres"
+    principals: ["restricted"]
+    resources: ["postgres_query"]
+    actions: ["query"]
+    expected: EFFECT_ALLOW
+  
+  - name: "Restricted user can query iceberg"
+    principals: ["restricted"]
+    resources: ["iceberg_query"]
+    actions: ["query"]
+    expected: EFFECT_ALLOW
+  
+  - name: "Restricted user cannot query SSN in postgres"
+    principals: ["restricted"]
+    resources: ["postgres_ssn_query"]
+    actions: ["query"]
+    expected: EFFECT_DENY
+  
+  - name: "Restricted user cannot query SSN in iceberg"
+    principals: ["restricted"]
+    resources: ["iceberg_ssn_query"]
+    actions: ["query"]
+    expected: EFFECT_DENY

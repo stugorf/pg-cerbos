@@ -1,0 +1,20 @@
+# Minimal Cerbos Configuration for Testing
+# Use this if the full config has issues
+
+server:
+  httpListenAddr: ":3593"
+  grpcListenAddr: ":3593"
+  
+storage:
+  driver: "disk"
+  disk:
+    directory: /policies
+    watchForChanges: true
+
+# Disable audit for testing
+audit:
+  enabled: false
+
+# Disable request validation for testing
+requestValidation:
+  enabled: false
