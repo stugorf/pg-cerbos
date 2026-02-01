@@ -175,12 +175,39 @@ services:
     #   retries: 5
     #   start_period: 15s
 
+  # PuppyGraph - Graph query engine for AML PoC
+  puppygraph:
+    image: puppygraph/puppygraph:stable
+    container_name: pg-cerbos-puppygraph
+    environment:
+      - PUPPYGRAPH_PASSWORD=${PUPPYGRAPH_PASSWORD:-puppygraph123}
+      - QUERY_TIMEOUT=5m
+      - STORAGE_PATH_ROOT=/data/storage
+    ports:
+      - "8081:8081"  # Web UI
+      - "8182:8182"  # Gremlin server
+      - "7687:7687"  # openCypher/Bolt
+    volumes:
+      - puppygraph_data:/data/storage
+      - ./puppygraph:/schemas:ro  # Mount schema directory for reference
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [trino-net]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8081/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
 
 volumes:
   pg_data:
   query_results_data:
   minio_data:
   nessie_data:
+  puppygraph_data:
 
 networks:
   trino-net: {}

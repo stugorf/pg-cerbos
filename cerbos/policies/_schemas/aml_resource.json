@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "title": "AML Resource Schema",
+  "description": "Schema for AML resources (alert, case, transaction, customer, sar) in AML PoC",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": ["alert", "case", "transaction", "customer", "sar"],
+      "description": "Type of AML resource"
+    },
+    "id": {
+      "type": "string",
+      "description": "Resource identifier"
+    },
+    "owner_user_id": {
+      "type": "string",
+      "description": "User ID of the case owner (for case resources)"
+    },
+    "team": {
+      "type": "string",
+      "description": "Team assignment (for case resources)"
+    },
+    "status": {
+      "type": "string",
+      "description": "Resource status (e.g., 'open', 'closed' for cases; 'new', 'triaged', 'escalated', 'closed' for alerts)"
+    },
+    "priority": {
+      "type": "string",
+      "description": "Case priority (low, medium, high, urgent)"
+    },
+    "case_id": {
+      "type": "string",
+      "description": "Case ID (for case_note and sar resources)"
+    },
+    "author_user_id": {
+      "type": "string",
+      "description": "Author user ID (for case_note resources)"
+    }
+  },
+  "required": ["kind", "id"]
+}

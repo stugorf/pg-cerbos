@@ -1,0 +1,300 @@
+{
+  "catalog": {
+    "type": "jdbc",
+    "jdbc": {
+      "url": "jdbc:postgresql://postgres:5432/demo_data",
+      "user": "postgres",
+      "password": "postgres",
+      "driver": "org.postgresql.Driver"
+    }
+  },
+  "vertices": [
+    {
+      "label": "Customer",
+      "table": {
+        "name": "aml.customer",
+        "schema": "aml"
+      },
+      "attributes": {
+        "customer_id": "customer_id",
+        "name": "name",
+        "risk_rating": "risk_rating",
+        "pep_flag": "pep_flag",
+        "created_at": "created_at",
+        "updated_at": "updated_at"
+      },
+      "primaryKey": {
+        "column": "customer_id"
+      }
+    },
+    {
+      "label": "Account",
+      "table": {
+        "name": "aml.account",
+        "schema": "aml"
+      },
+      "attributes": {
+        "account_id": "account_id",
+        "customer_id": "customer_id",
+        "type": "type",
+        "status": "status",
+        "created_at": "created_at",
+        "updated_at": "updated_at"
+      },
+      "primaryKey": {
+        "column": "account_id"
+      }
+    },
+    {
+      "label": "Transaction",
+      "table": {
+        "name": "aml.transaction",
+        "schema": "aml"
+      },
+      "attributes": {
+        "txn_id": "txn_id",
+        "from_account_id": "from_account_id",
+        "to_account_id": "to_account_id",
+        "amount": "amount",
+        "timestamp": "timestamp",
+        "channel": "channel",
+        "country": "country",
+        "created_at": "created_at"
+      },
+      "primaryKey": {
+        "column": "txn_id"
+      }
+    },
+    {
+      "label": "Alert",
+      "table": {
+        "name": "aml.alert",
+        "schema": "aml"
+      },
+      "attributes": {
+        "alert_id": "alert_id",
+        "alert_type": "alert_type",
+        "created_at": "created_at",
+        "severity": "severity",
+        "status": "status",
+        "primary_customer_id": "primary_customer_id",
+        "primary_account_id": "primary_account_id"
+      },
+      "primaryKey": {
+        "column": "alert_id"
+      }
+    },
+    {
+      "label": "Case",
+      "table": {
+        "name": "aml.case",
+        "schema": "aml"
+      },
+      "attributes": {
+        "case_id": "case_id",
+        "status": "status",
+        "priority": "priority",
+        "created_at": "created_at",
+        "updated_at": "updated_at",
+        "owner_user_id": "owner_user_id",
+        "team": "team",
+        "source_alert_id": "source_alert_id"
+      },
+      "primaryKey": {
+        "column": "case_id"
+      }
+    },
+    {
+      "label": "CaseNote",
+      "table": {
+        "name": "aml.case_note",
+        "schema": "aml"
+      },
+      "attributes": {
+        "note_id": "note_id",
+        "case_id": "case_id",
+        "author_user_id": "author_user_id",
+        "created_at": "created_at",
+        "text": "text"
+      },
+      "primaryKey": {
+        "column": "note_id"
+      }
+    },
+    {
+      "label": "SAR",
+      "table": {
+        "name": "aml.sar",
+        "schema": "aml"
+      },
+      "attributes": {
+        "sar_id": "sar_id",
+        "case_id": "case_id",
+        "status": "status",
+        "created_at": "created_at",
+        "submitted_at": "submitted_at"
+      },
+      "primaryKey": {
+        "column": "sar_id"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "label": "OWNS",
+      "from": {
+        "table": {
+          "name": "aml.customer",
+          "schema": "aml"
+        },
+        "column": "customer_id"
+      },
+      "to": {
+        "table": {
+          "name": "aml.account",
+          "schema": "aml"
+        },
+        "column": "customer_id"
+      }
+    },
+    {
+      "label": "SENT_TXN",
+      "from": {
+        "table": {
+          "name": "aml.account",
+          "schema": "aml"
+        },
+        "column": "account_id"
+      },
+      "to": {
+        "table": {
+          "name": "aml.transaction",
+          "schema": "aml"
+        },
+        "column": "from_account_id"
+      }
+    },
+    {
+      "label": "TO_ACCOUNT",
+      "from": {
+        "table": {
+          "name": "aml.transaction",
+          "schema": "aml"
+        },
+        "column": "to_account_id"
+      },
+      "to": {
+        "table": {
+          "name": "aml.account",
+          "schema": "aml"
+        },
+        "column": "account_id"
+      }
+    },
+    {
+      "label": "FLAGS_CUSTOMER",
+      "from": {
+        "table": {
+          "name": "aml.alert",
+          "schema": "aml"
+        },
+        "column": "primary_customer_id"
+      },
+      "to": {
+        "table": {
+          "name": "aml.customer",
+          "schema": "aml"
+        },
+        "column": "customer_id"
+      }
+    },
+    {
+      "label": "FLAGS_ACCOUNT",
+      "from": {
+        "table": {
+          "name": "aml.alert",
+          "schema": "aml"
+        },
+        "column": "primary_account_id"
+      },
+      "to": {
+        "table": {
+          "name": "aml.account",
+          "schema": "aml"
+        },
+        "column": "account_id"
+      }
+    },
+    {
+      "label": "FROM_ALERT",
+      "from": {
+        "table": {
+          "name": "aml.case",
+          "schema": "aml"
+        },
+        "column": "source_alert_id"
+      },
+      "to": {
+        "table": {
+          "name": "aml.alert",
+          "schema": "aml"
+        },
+        "column": "alert_id"
+      }
+    },
+    {
+      "label": "ABOUT_CUSTOMER",
+      "from": {
+        "table": {
+          "name": "aml.case",
+          "schema": "aml"
+        },
+        "column": "case_id"
+      },
+      "to": {
+        "table": {
+          "name": "aml.customer",
+          "schema": "aml"
+        },
+        "column": "customer_id"
+      },
+      "condition": {
+        "sql": "EXISTS (SELECT 1 FROM aml.alert a WHERE a.alert_id = aml.case.source_alert_id AND a.primary_customer_id = aml.customer.customer_id)"
+      }
+    },
+    {
+      "label": "HAS_NOTE",
+      "from": {
+        "table": {
+          "name": "aml.case",
+          "schema": "aml"
+        },
+        "column": "case_id"
+      },
+      "to": {
+        "table": {
+          "name": "aml.case_note",
+          "schema": "aml"
+        },
+        "column": "case_id"
+      }
+    },
+    {
+      "label": "RESULTED_IN",
+      "from": {
+        "table": {
+          "name": "aml.case",
+          "schema": "aml"
+        },
+        "column": "case_id"
+      },
+      "to": {
+        "table": {
+          "name": "aml.sar",
+          "schema": "aml"
+        },
+        "column": "case_id"
+      }
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "title": "AML Principal Schema",
+  "description": "Schema for AML user principals in AML PoC",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique user identifier"
+    },
+    "email": {
+      "type": "string",
+      "format": "email",
+      "description": "User email address"
+    },
+    "roles": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "aml_analyst",
+          "aml_manager",
+          "auditor"
+        ]
+      },
+      "description": "List of AML roles assigned to the user"
+    },
+    "team": {
+      "type": "string",
+      "description": "User's team assignment (e.g., 'Team A', 'Team B')"
+    },
+    "is_active": {
+      "type": "boolean",
+      "description": "Whether the user account is active"
+    }
+  },
+  "required": ["id", "roles"]
+}

@@ -1,0 +1,10 @@
+apiVersion: api.cerbos.dev/v1
+derivedRoles:
+  name: aml_derived_roles
+  definitions:
+    case_assignee:
+      name: case_assignee
+      parentRoles: ["aml_analyst"]
+      condition:
+        match:
+          expr: P.id == R.attr.owner_user_id

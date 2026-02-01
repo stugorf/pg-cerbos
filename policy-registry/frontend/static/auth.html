@@ -60,6 +60,7 @@
                 <button class="tab-btn active" data-tab="sql-query">SQL Query</button>
                 <button class="tab-btn" data-tab="policies">Policy Management</button>
                 <button class="tab-btn" data-tab="cerbos-logs">Cerbos Logs</button>
+                <button class="tab-btn" data-tab="architecture">Architecture</button>
                 <button class="tab-btn" data-tab="users">User Management</button>
                 <button class="tab-btn" data-tab="roles">Role Management</button>
                 <button class="tab-btn" data-tab="permissions">Permission Management</button>
@@ -136,6 +137,34 @@
                         </div>
                         <div id="cerbos-policy-output" class="policies-list-container">
                             <div class="loading-message">Loading Cerbos policies...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Architecture Diagram Tab -->
+                <div id="architecture-tab" class="tab-pane">
+                    <div class="architecture-section">
+                        <div class="architecture-header">
+                            <h3>System Architecture Diagram</h3>
+                            <p>Current system architecture showing all components and data flow</p>
+                            <button id="refresh-architecture-btn" class="btn btn-secondary">Refresh Diagram</button>
+                        </div>
+                        <div id="architecture-diagram" class="architecture-diagram">
+                            <pre id="architecture-content" class="architecture-content"></pre>
+                        </div>
+                        <div class="architecture-legend">
+                            <h4>Component Legend</h4>
+                            <ul>
+                                <li><strong>Frontend (Port 8083)</strong>: Web UI with authentication, SQL queries, policy management</li>
+                                <li><strong>Backend API (Port 8082)</strong>: FastAPI service handling authentication, queries, and Cerbos integration</li>
+                                <li><strong>Cerbos PDP (Port 3593)</strong>: Policy Decision Point for authorization</li>
+                                <li><strong>PuppyGraph (Ports 8081/8182/7687)</strong>: Graph query engine for AML PoC</li>
+                                <li><strong>Trino (Port 8080)</strong>: Federated SQL engine for Postgres and Iceberg</li>
+                                <li><strong>PostgreSQL (Port 5434)</strong>: Main database with demo_data, policy_store, nessie</li>
+                                <li><strong>Query Results DB (Port 5433)</strong>: Separate database for query logs</li>
+                                <li><strong>MinIO (Ports 9000/9001)</strong>: S3-compatible storage for Iceberg</li>
+                                <li><strong>Nessie (Port 19120)</strong>: Catalog service for Iceberg version control</li>
+                            </ul>
                         </div>
                     </div>
                 </div>
@@ -1487,8 +1516,120 @@
                             console.warn('Cannot load Cerbos policies: no token available');
                         }
                     }
+                    
+                    // Auto-load architecture diagram when architecture tab is opened
+                    if (targetTab === 'architecture') {
+                        loadArchitectureDiagram();
+                    }
                 });
             });
+        }
+
+        // Load and display architecture diagram
+        function loadArchitectureDiagram() {
+            const diagramContent = document.getElementById('architecture-content');
+            if (!diagramContent) return;
+            
+            const architectureDiagram = `┌─────────────────────────────────────────────────────────────────────────────┐
+│                          User Interface Layer                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐      │
+│  │   Auth UI        │  │  Policy Editor   │  │  SQL Query UI    │      │
+│  │  (Login/Admin)   │  │  (Cerbos YAML)   │  │  (Query Builder) │      │
+│  └────────┬─────────┘  └────────┬─────────┘  └────────┬─────────┘      │
+│           │                      │                     │                  │
+│           └──────────────────────┼─────────────────────┘                  │
+│                                  │                                         │
+│                          ┌───────▼────────┐                                │
+│                          │  Cerbos Logs   │                                │
+│                          │  Viewer Tab    │                                │
+│                          └────────────────┘                                │
+└───────────────────────────────────┬─────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    Policy Registry Frontend (Nginx)                         │
+│                         Port 8083                                           │
+│              Serves static HTML/CSS/JS files                                │
+└───────────────────────────────────┬─────────────────────────────────────────┘
+                                    │ HTTP Requests
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│              Policy Registry Backend (FastAPI)                              │
+│                         Port 8082                                           │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │  • Authentication (JWT)                                              │  │
+│  │  • User/Role/Permission Management                                   │  │
+│  │  • Cerbos Policy Management (CRUD)                                    │  │
+│  │  • SQL Query Execution (Trino Client)                                 │  │
+│  │  • Authorization Decision Logging                                     │  │
+│  │  • Cerbos Logs API                                                    │  │
+│  │  • AML API Endpoints (PoC)                                            │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+└─────────┬───────────────────────────────────────┬───────────────────────────┘
+          │                                       │
+          │ Authorization Check                    │ Query Execution
+          │ (gRPC)                                │ (HTTP)
+          ▼                                       ▼
+┌──────────────────────────┐        ┌───────────────────────────────────────┐
+│   Cerbos PDP (gRPC)      │        │        Trino Cluster                  │
+│   Port 3593              │        │  ┌─────────────────┐                  │
+│                          │        │  │  Coordinator   │                  │
+│  ┌────────────────────┐  │        │  │  Port 8080     │◄──►              │
+│  │  Policy Evaluation │  │        │  │                 │                  │
+│  │  (YAML Policies)  │  │        │  │ • Query Planning│                  │
+│  │                    │  │        │  │ • Coordination  │                  │
+│  │  • Resource Policy │  │        │  └─────────────────┘                  │
+│  │  • Principal Policy│  │        │  ┌─────────────────┐                  │
+│  │  • Derived Roles   │  │        │  │    Worker       │                  │
+│  │  • Audit Logging   │  │        │  │  (internal)     │                  │
+│  └────────────────────┘  │        │  │                 │                  │
+│                          │        │  │ • Query Exec    │                  │
+│  Policy Storage:         │        │  │ • Data Processing│                │
+│  /policies/*.yaml        │        │  └─────────────────┘                  │
+└──────────────────────────┘        └───────────┬───────────────────────────┘
+                                                │
+                                                ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    PuppyGraph (Graph Query Engine)                           │
+│              Ports 8081 (Web UI) / 8182 (Gremlin) / 7687 (Bolt)             │
+│  ┌──────────────────────────────────────────────────────────────────────┐  │
+│  │  • Graph Traversals                                                   │  │
+│  │  • Postgres Translation (JDBC)                                       │  │
+│  │  • AML Schema Mapping                                                 │  │
+│  └──────────────────────────────────────────────────────────────────────┘  │
+└───────────────────────────────────┬─────────────────────────────────────────┘
+                                    │ JDBC
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          Data Storage Layer                                  │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐      │
+│  │   Postgres       │  │ Query Results DB │  │     MinIO         │      │
+│  │   Port 5434      │  │   Port 5433      │  │   Port 9000/9001  │      │
+│  │                  │  │                  │  │                   │      │
+│  │ • demo_data      │  │ • query_results  │  │ • S3 Storage     │      │
+│  │ • policy_store   │  │ • query_logs     │  │ • Iceberg Data    │      │
+│  │ • nessie         │  │ • query_stats    │  │ • Parquet Files  │      │
+│  │ • users/roles    │  │                  │  │                   │      │
+│  │ • aml.* (PoC)    │  │                  │  │                   │      │
+│  └──────────────────┘  └──────────────────┘  └──────────────────┘      │
+│                                                                             │
+│  ┌──────────────────┐                                                      │
+│  │     Nessie       │                                                      │
+│  │   Port 19120     │                                                      │
+│  │                  │                                                      │
+│  │ • Catalog        │                                                      │
+│  │ • Version Control│                                                      │
+│  │ • Schema Mgmt    │                                                      │
+│  └──────────────────┘                                                      │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Last Updated: ${new Date().toLocaleString()}`;
+            
+            diagramContent.textContent = architectureDiagram;
         }
 
         function initializeAdminFeatures() {
@@ -1506,6 +1647,12 @@
             
             // Initialize Cerbos policy editor buttons
             initializeCerbosPolicyButtons();
+            
+            // Initialize architecture diagram refresh button
+            const refreshArchBtn = document.getElementById('refresh-architecture-btn');
+            if (refreshArchBtn) {
+                refreshArchBtn.addEventListener('click', loadArchitectureDiagram);
+            }
         }
 
         async function loadUsers() {

@@ -444,6 +444,102 @@ After running `just init`, you'll have access to:
 
 - **PostgreSQL**: `postgres.public.person` (10 records with names, SSNs, job titles, gender, age)
 - **Iceberg**: `iceberg.demo.employee_performance` (10 records with performance metrics: employee_id, performance_score, projects_completed, last_review_date, department, salary_band)
+- **AML PoC Data**: `aml.*` schema with customers, accounts, transactions, alerts, cases, notes, and SARs (see [AML PoC Documentation](docs/AML_POC_SPEC.md))
+
+### PuppyGraph Graph Queries
+
+PuppyGraph provides graph query capabilities for the AML PoC. Access the PuppyGraph Web UI at http://localhost:8081 (username: `puppygraph`, password: `puppygraph123`).
+
+#### Example openCypher Queries
+
+**Expand transaction network from a case:**
+```cypher
+MATCH (c:Case {case_id: 1})-[:FROM_ALERT]->(a:Alert)-[:FLAGS_CUSTOMER]->(cust:Customer)
+MATCH (cust)-[:OWNS]->(acc:Account)-[:SENT_TXN]->(txn:Transaction)-[:TO_ACCOUNT]->(acc2:Account)
+RETURN c, a, cust, acc, txn, acc2
+```
+
+**Find all customers connected to high-value transactions:**
+```cypher
+MATCH (cust:Customer)-[:OWNS]->(acc:Account)-[:SENT_TXN]->(txn:Transaction)
+WHERE txn.amount > 50000
+RETURN cust.name, cust.risk_rating, txn.amount, txn.timestamp
+ORDER BY txn.amount DESC
+```
+
+**Trace alert to case to SAR:**
+```cypher
+MATCH (alert:Alert)-[:FROM_ALERT]-(c:Case)-[:RESULTED_IN]->(sar:SAR)
+WHERE alert.severity = 'high'
+RETURN alert.alert_id, alert.alert_type, c.case_id, c.status, sar.sar_id, sar.status
+```
+
+**Find transaction paths between customers:**
+```cypher
+MATCH path = (c1:Customer)-[:OWNS]->(acc1:Account)-[:SENT_TXN]->(txn:Transaction)-[:TO_ACCOUNT]->(acc2:Account)<-[:OWNS]-(c2:Customer)
+WHERE c1.customer_id <> c2.customer_id
+RETURN c1.name as from_customer, c2.name as to_customer, txn.amount, txn.timestamp
+ORDER BY txn.amount DESC
+LIMIT 10
+```
+
+**Get case investigation timeline:**
+```cypher
+MATCH (c:Case {case_id: 1})-[:HAS_NOTE]->(note:CaseNote)
+RETURN note.created_at, note.author_user_id, note.text
+ORDER BY note.created_at
+```
+
+#### Example Gremlin Queries
+
+**Find all transactions for a customer:**
+```groovy
+g.V().hasLabel('Customer').has('customer_id', 1)
+  .out('OWNS')
+  .out('SENT_TXN')
+  .valueMap()
+```
+
+**Get case with all related entities:**
+```groovy
+g.V().hasLabel('Case').has('case_id', 1)
+  .as('case')
+  .out('FROM_ALERT').as('alert')
+  .out('FLAGS_CUSTOMER').as('customer')
+  .out('OWNS').as('account')
+  .out('SENT_TXN').as('transaction')
+  .select('case', 'alert', 'customer', 'account', 'transaction')
+  .by(valueMap())
+```
+
+**Find high-risk customers with PEP flags:**
+```groovy
+g.V().hasLabel('Customer')
+  .has('pep_flag', true)
+  .has('risk_rating', 'high')
+  .valueMap()
+```
+
+**Traverse from alert to transactions:**
+```groovy
+g.V().hasLabel('Alert').has('alert_id', 1)
+  .out('FLAGS_CUSTOMER')
+  .out('OWNS')
+  .out('SENT_TXN')
+  .order().by('amount', desc)
+  .limit(10)
+  .valueMap()
+```
+
+#### Using PuppyGraph Web UI
+
+1. **Access Web UI**: http://localhost:8081
+2. **Sign In**: Use `puppygraph` / `puppygraph123`
+3. **Navigate to Query Tab**: Select openCypher or Gremlin
+4. **Execute Queries**: Paste and run the examples above
+5. **View Results**: See results in table or graph visualization
+
+For more details, see [AML PoC Quick Start Guide](docs/AML_POC_QUICKSTART.md).
 
 ## 🔧 Troubleshooting
 
