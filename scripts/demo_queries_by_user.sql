@@ -3,7 +3,7 @@
 -- Run these queries through the web interface at http://localhost:8082
 
 -- ============================================================================
--- ADMIN USER (admin@ues-mvp.com) - Full System Access
+-- ADMIN USER (admin@pg-cerbos.com) - Full System Access
 -- ============================================================================
 -- Password: admin123
 -- Capabilities: Full access to all data sources, all fields, system administration
@@ -44,7 +44,7 @@ SELECT 'System Access Test' as test_type, COUNT(*) as total_policies FROM postgr
 SELECT 'User Management Test' as test_type, COUNT(*) as total_users FROM postgres.public.users
 
 -- ============================================================================
--- FULL ACCESS USER (fullaccess@ues-mvp.com) - Full Data Access
+-- FULL ACCESS USER (fullaccess@pg-cerbos.com) - Full Data Access
 -- ============================================================================
 -- Password: user123
 -- Capabilities: Full access to all data sources and fields, no system administration
@@ -88,7 +88,7 @@ GROUP BY department
 ORDER BY avg_performance DESC
 
 -- ============================================================================
--- POSTGRES-ONLY USER (postgresonly@ues-mvp.com) - PostgreSQL Only
+-- POSTGRES-ONLY USER (postgresonly@pg-cerbos.com) - PostgreSQL Only
 -- ============================================================================
 -- Password: user123
 -- Capabilities: PostgreSQL access only, no Iceberg access
@@ -138,7 +138,7 @@ ORDER BY role_category, last_name;
 -- SELECT 'Iceberg Access Test' as test_type, COUNT(*) as total_records FROM iceberg.sales.person;
 
 -- ============================================================================
--- RESTRICTED USER (restricted@ues-mvp.com) - Restricted Access
+-- RESTRICTED USER (restricted@pg-cerbos.com) - Restricted Access
 -- ============================================================================
 -- Password: user123
 -- Capabilities: Both data sources, SSN fields masked/restricted

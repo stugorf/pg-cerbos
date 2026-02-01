@@ -11,7 +11,7 @@
 **Headers:**
 ```
 x-user-id: 2
-x-user-email: fullaccess@ues-mvp.com
+x-user-email: fullaccess@pg-cerbos.com
 x-user-roles: full_access_user
 ```
 
@@ -29,7 +29,7 @@ SELECT * FROM postgres.public.person LIMIT 5
 - **URL:** `http://localhost:8081/v1/statement`
 - **Headers:**
   - `x-user-id`: `2`
-  - `x-user-email`: `fullaccess@ues-mvp.com`
+  - `x-user-email`: `fullaccess@pg-cerbos.com`
   - `x-user-roles`: `full_access_user`
 - **Body:** `SELECT * FROM postgres.public.person LIMIT 5`
 
@@ -38,7 +38,7 @@ SELECT * FROM postgres.public.person LIMIT 5
 - **URL:** `http://localhost:8081/v1/statement`
 - **Headers:**
   - `x-user-id`: `4`
-  - `x-user-email`: `restricted@ues-mvp.com`
+  - `x-user-email`: `restricted@pg-cerbos.com`
   - `x-user-roles`: `restricted_user`
 - **Body:** `SELECT ssn FROM postgres.public.person LIMIT 5`
 
@@ -47,7 +47,7 @@ SELECT * FROM postgres.public.person LIMIT 5
 - **URL:** `http://localhost:8081/v1/statement`
 - **Headers:**
   - `x-user-id`: `3`
-  - `x-user-email`: `postgresonly@ues-mvp.com`
+  - `x-user-email`: `postgresonly@pg-cerbos.com`
   - `x-user-roles`: `postgres_only_user`
 - **Body:** `SELECT * FROM iceberg.demo.employee_performance LIMIT 5`
 

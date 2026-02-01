@@ -178,7 +178,7 @@ test_cross_source_access() {
     # Test with admin user
     local admin_response=$(curl -s -X POST http://localhost:8082/auth/login \
         -H "Content-Type: application/json" \
-        -d '{"email": "admin@ues-mvp.com", "password": "admin123"}')
+        -d '{"email": "admin@pg-cerbos.com", "password": "admin123"}')
     
     if echo "$admin_response" | grep -q "access_token"; then
         local admin_token=$(echo "$admin_response" | jq -r '.access_token')
@@ -189,7 +189,7 @@ test_cross_source_access() {
         local response=$(curl -s -X POST http://localhost:8080/v1/statement \
             -H "Content-Type: application/json" \
             -H "X-User-Id: $admin_id" \
-            -H "X-User-Email: admin@ues-mvp.com" \
+            -H "X-User-Email: admin@pg-cerbos.com" \
             -H "X-User-Roles: $admin_roles" \
             -d "$cross_query")
         
@@ -207,10 +207,10 @@ echo "🧪 Starting user access tests..."
 echo "================================"
 
 # Test each user type
-test_user_access "admin@ues-mvp.com" "admin123" "Admin User"
-test_user_access "fullaccess@ues-mvp.com" "user123" "Full Access User"
-test_user_access "postgresonly@ues-mvp.com" "user123" "Postgres-Only User"
-test_user_access "restricted@ues-mvp.com" "user123" "Restricted User"
+test_user_access "admin@pg-cerbos.com" "admin123" "Admin User"
+test_user_access "fullaccess@pg-cerbos.com" "user123" "Full Access User"
+test_user_access "postgresonly@pg-cerbos.com" "user123" "Postgres-Only User"
+test_user_access "restricted@pg-cerbos.com" "user123" "Restricted User"
 
 # Test cross-data source functionality
 test_cross_source_access

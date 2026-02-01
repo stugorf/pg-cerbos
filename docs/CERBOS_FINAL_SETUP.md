@@ -35,7 +35,7 @@ Test with different user roles:
 ```bash
 curl -X POST \
   -H 'x-user-id: 2' \
-  -H 'x-user-email: fullaccess@ues-mvp.com' \
+  -H 'x-user-email: fullaccess@pg-cerbos.com' \
   -H 'x-user-roles: full_access_user' \
   --data-binary 'SELECT * FROM postgres.public.person LIMIT 5' \
   http://localhost:8081/v1/statement
@@ -45,7 +45,7 @@ curl -X POST \
 ```bash
 curl -X POST \
   -H 'x-user-id: 4' \
-  -H 'x-user-email: restricted@ues-mvp.com' \
+  -H 'x-user-email: restricted@pg-cerbos.com' \
   -H 'x-user-roles: restricted_user' \
   --data-binary 'SELECT ssn FROM postgres.public.person LIMIT 5' \
   http://localhost:8081/v1/statement
@@ -55,7 +55,7 @@ curl -X POST \
 ```bash
 curl -X POST \
   -H 'x-user-id: 3' \
-  -H 'x-user-email: postgresonly@ues-mvp.com' \
+  -H 'x-user-email: postgresonly@pg-cerbos.com' \
   -H 'x-user-roles: postgres_only_user' \
   --data-binary 'SELECT * FROM iceberg.demo.employee_performance LIMIT 5' \
   http://localhost:8081/v1/statement

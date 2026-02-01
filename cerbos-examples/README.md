@@ -83,7 +83,7 @@ curl -X POST http://localhost:3593/api/check \
     "principal": {
       "id": "1",
       "roles": ["admin"],
-      "attr": {"email": "admin@ues-mvp.com"}
+      "attr": {"email": "admin@pg-cerbos.com"}
     },
     "resource": {
       "kind": "postgres",

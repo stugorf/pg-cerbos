@@ -108,7 +108,7 @@ main() {
     local max_attempts=60
     
     while [ $attempt -le $max_attempts ] && [ "$postgres_ready" = false ]; do
-        if docker exec mvp-postgres pg_isready -U postgres > /dev/null 2>&1; then
+        if docker exec pg-cerbos-postgres pg_isready -U postgres > /dev/null 2>&1; then
             postgres_ready=true
             print_success "Postgres is ready!"
         else
@@ -131,7 +131,7 @@ main() {
     
     # Initialize MinIO warehouse bucket
     print_status "Initializing MinIO warehouse bucket..."
-    if docker exec mvp-minio bash /docker-entrypoint-initdb.d/init-minio.sh >/dev/null 2>&1; then
+    if docker exec pg-cerbos-minio bash /docker-entrypoint-initdb.d/init-minio.sh >/dev/null 2>&1; then
         print_success "MinIO warehouse bucket initialized"
     else
         print_warning "MinIO initialization had issues - this may be normal if already configured"
@@ -143,14 +143,14 @@ main() {
     
     # Check for and kill any hanging queries
     print_status "Checking for hanging queries..."
-    HANGING_QUERIES=$(docker exec mvp-trino-coordinator trino --execute "SELECT query_id FROM system.runtime.queries WHERE state = 'RUNNING' AND query_id != (SELECT query_id FROM system.runtime.queries WHERE state = 'RUNNING' ORDER BY created DESC LIMIT 1)" 2>/dev/null | grep -v "query_id" | tr -d '"' || echo "")
+    HANGING_QUERIES=$(docker exec pg-cerbos-trino-coordinator trino --execute "SELECT query_id FROM system.runtime.queries WHERE state = 'RUNNING' AND query_id != (SELECT query_id FROM system.runtime.queries WHERE state = 'RUNNING' ORDER BY created DESC LIMIT 1)" 2>/dev/null | grep -v "query_id" | tr -d '"' || echo "")
     
     if [ -n "$HANGING_QUERIES" ]; then
         print_warning "Found hanging queries, cleaning them up..."
         for QUERY_ID in $HANGING_QUERIES; do
             if [ -n "$QUERY_ID" ]; then
                 print_status "Killing hanging query: $QUERY_ID"
-                docker exec mvp-trino-coordinator trino --execute "CALL system.runtime.kill_query('$QUERY_ID')" >/dev/null 2>&1
+                docker exec pg-cerbos-trino-coordinator trino --execute "CALL system.runtime.kill_query('$QUERY_ID')" >/dev/null 2>&1
             fi
         done
         print_success "Hanging queries cleaned up"
@@ -161,11 +161,8 @@ main() {
     # Wait for Policy Registry API
     wait_for_service "Policy Registry API" "http://localhost:8082/health" 60
     
-    # Wait for OPA
-    wait_for_service "OPA" "http://localhost:8181/health" 60
-    
-    # Wait for Envoy
-    wait_for_service "Envoy Proxy" "http://localhost:8081" 60
+    # Wait for Cerbos
+    wait_for_service "Cerbos" "http://localhost:3593/_cerbos/health" 60
     
     echo ""
     echo "🗄️ Initializing databases..."
@@ -176,19 +173,19 @@ main() {
     
     # Check if databases were created
     print_status "Verifying database initialization..."
-    if docker exec mvp-postgres psql -U postgres -lqt | grep -q demo_data; then
+    if docker exec pg-cerbos-postgres psql -U postgres -lqt | grep -q demo_data; then
         print_success "Demo data database created"
     else
         print_warning "Demo data database not found - this may be normal on first run"
     fi
     
-    if docker exec mvp-postgres psql -U postgres -lqt | grep -q policy_store; then
+    if docker exec pg-cerbos-postgres psql -U postgres -lqt | grep -q policy_store; then
         print_success "Policy store database created"
     else
         print_warning "Policy store database not found - this may be normal on first run"
     fi
     
-    if docker exec mvp-postgres psql -U postgres -lqt | grep -q query_results; then
+    if docker exec pg-cerbos-postgres psql -U postgres -lqt | grep -q query_results; then
         print_success "Query results database created"
     else
         print_warning "Query results database not found - this may be normal on first run"
@@ -196,7 +193,7 @@ main() {
     
     # Fix schema compatibility issues
     print_status "Checking and fixing schema compatibility..."
-    if docker exec mvp-postgres psql -U postgres -d policy_store -c "ALTER TABLE policies ADD COLUMN IF NOT EXISTS updated_at timestamp with time zone DEFAULT now();" > /dev/null 2>&1; then
+    if docker exec pg-cerbos-postgres psql -U postgres -d policy_store -c "ALTER TABLE policies ADD COLUMN IF NOT EXISTS updated_at timestamp with time zone DEFAULT now();" > /dev/null 2>&1; then
         print_success "Schema compatibility check completed"
     else
         print_warning "Schema compatibility check failed - this may be normal if table doesn't exist yet"
@@ -204,7 +201,7 @@ main() {
     
     # Fix query results database schema compatibility
     print_status "Checking and fixing query results database schema..."
-    if docker exec mvp-query-results psql -U postgres -d query_results -c "ALTER TABLE queries ADD COLUMN IF NOT EXISTS trino_query_id character varying(100)" > /dev/null 2>&1; then
+    if docker exec pg-cerbos-query-results psql -U postgres -d query_results -c "ALTER TABLE queries ADD COLUMN IF NOT EXISTS trino_query_id character varying(100)" > /dev/null 2>&1; then
         print_success "Query results database schema compatibility ensured"
     else
         print_warning "Query results database schema check failed - this may be normal if table doesn't exist yet"
@@ -231,18 +228,18 @@ main() {
     
     # Check if seed data exists in policy_store database
     print_status "Checking if database seed data exists..."
-    USER_COUNT=$(docker exec mvp-postgres psql -U postgres -d policy_store -t -c "SELECT COUNT(*) FROM users;" 2>/dev/null | tr -d ' ' || echo "0")
-    ROLE_COUNT=$(docker exec mvp-postgres psql -U postgres -d policy_store -t -c "SELECT COUNT(*) FROM roles;" 2>/dev/null | tr -d ' ' || echo "0")
+    USER_COUNT=$(docker exec pg-cerbos-postgres psql -U postgres -d policy_store -t -c "SELECT COUNT(*) FROM users;" 2>/dev/null | tr -d ' ' || echo "0")
+    ROLE_COUNT=$(docker exec pg-cerbos-postgres psql -U postgres -d policy_store -t -c "SELECT COUNT(*) FROM roles;" 2>/dev/null | tr -d ' ' || echo "0")
     
     if [ "$USER_COUNT" -gt 0 ] && [ "$ROLE_COUNT" -gt 0 ]; then
         print_success "Database already seeded with $USER_COUNT users and $ROLE_COUNT roles"
         
         # Ensure admin user is active even if already seeded
         print_status "Ensuring admin user is active..."
-        docker exec mvp-postgres psql -U postgres -d policy_store -c "UPDATE users SET is_active = TRUE WHERE email = 'admin@ues-mvp.com';" > /dev/null 2>&1
+        docker exec pg-cerbos-postgres psql -U postgres -d policy_store -c "UPDATE users SET is_active = TRUE WHERE email = 'admin@pg-cerbos.com';" > /dev/null 2>&1
         
         # Verify admin user is active
-        ADMIN_ACTIVE=$(docker exec mvp-postgres psql -U postgres -d policy_store -t -c "SELECT is_active FROM users WHERE email = 'admin@ues-mvp.com';" 2>/dev/null | tr -d ' ' || echo "NULL")
+        ADMIN_ACTIVE=$(docker exec pg-cerbos-postgres psql -U postgres -d policy_store -t -c "SELECT is_active FROM users WHERE email = 'admin@pg-cerbos.com';" 2>/dev/null | tr -d ' ' || echo "NULL")
         if [ "$ADMIN_ACTIVE" = "t" ]; then
             print_success "Admin user is now active"
         else
@@ -251,30 +248,30 @@ main() {
         
         # Final schema compatibility check after seeding
         print_status "Performing final schema compatibility check..."
-        docker exec mvp-postgres psql -U postgres -d policy_store -c "ALTER TABLE policies ADD COLUMN IF NOT EXISTS updated_at timestamp with time zone DEFAULT now();" > /dev/null 2>&1
+        docker exec pg-cerbos-postgres psql -U postgres -d policy_store -c "ALTER TABLE policies ADD COLUMN IF NOT EXISTS updated_at timestamp with time zone DEFAULT now();" > /dev/null 2>&1
         print_success "Schema compatibility ensured"
     else
         print_warning "Database not seeded. Running seed scripts manually..."
         
         # Run the seed scripts manually
         print_status "Seeding roles and permissions..."
-        docker exec mvp-postgres psql -U postgres -d policy_store -f /docker-entrypoint-initdb.d/30-auth-schema.sql > /dev/null 2>&1
-        docker exec mvp-postgres psql -U postgres -d policy_store -f /docker-entrypoint-initdb.d/40-auth-seed-data.sql > /dev/null 2>&1
+        docker exec pg-cerbos-postgres psql -U postgres -d policy_store -f /docker-entrypoint-initdb.d/30-auth-schema.sql > /dev/null 2>&1
+        docker exec pg-cerbos-postgres psql -U postgres -d policy_store -f /docker-entrypoint-initdb.d/40-auth-seed-data.sql > /dev/null 2>&1
         
         # Verify seeding was successful
         sleep 2
-        USER_COUNT_AFTER=$(docker exec mvp-postgres psql -U postgres -d policy_store -t -c "SELECT COUNT(*) FROM users;" 2>/dev/null | tr -d ' ' || echo "0")
-        ROLE_COUNT_AFTER=$(docker exec mvp-postgres psql -U postgres -d policy_store -t -c "SELECT COUNT(*) FROM roles;" 2>/dev/null | tr -d ' ' || echo "0")
+        USER_COUNT_AFTER=$(docker exec pg-cerbos-postgres psql -U postgres -d policy_store -t -c "SELECT COUNT(*) FROM users;" 2>/dev/null | tr -d ' ' || echo "0")
+        ROLE_COUNT_AFTER=$(docker exec pg-cerbos-postgres psql -U postgres -d policy_store -t -c "SELECT COUNT(*) FROM roles;" 2>/dev/null | tr -d ' ' || echo "0")
         
         if [ "$USER_COUNT_AFTER" -gt 0 ] && [ "$ROLE_COUNT_AFTER" -gt 0 ]; then
             print_success "Database seeded successfully with $USER_COUNT_AFTER users and $ROLE_COUNT_AFTER roles"
             
             # Fix admin user is_active field if needed
             print_status "Ensuring admin user is active..."
-            docker exec mvp-postgres psql -U postgres -d policy_store -c "UPDATE users SET is_active = TRUE WHERE email = 'admin@ues-mvp.com';" > /dev/null 2>&1
+            docker exec pg-cerbos-postgres psql -U postgres -d policy_store -c "UPDATE users SET is_active = TRUE WHERE email = 'admin@pg-cerbos.com';" > /dev/null 2>&1
             
             # Verify admin user is active
-            ADMIN_ACTIVE=$(docker exec mvp-postgres psql -U postgres -d policy_store -t -c "SELECT is_active FROM users WHERE email = 'admin@ues-mvp.com';" 2>/dev/null | tr -d ' ' || echo "NULL")
+            ADMIN_ACTIVE=$(docker exec pg-cerbos-postgres psql -U postgres -d policy_store -t -c "SELECT is_active FROM users WHERE email = 'admin@pg-cerbos.com';" 2>/dev/null | tr -d ' ' || echo "NULL")
             if [ "$ADMIN_ACTIVE" = "t" ]; then
                 print_success "Admin user is now active"
             else
@@ -283,7 +280,7 @@ main() {
             
             # Final schema compatibility check after seeding
             print_status "Performing final schema compatibility check..."
-            docker exec mvp-postgres psql -U postgres -d policy_store -c "ALTER TABLE policies ADD COLUMN IF NOT EXISTS updated_at timestamp with time zone DEFAULT now();" > /dev/null 2>&1
+            docker exec pg-cerbos-postgres psql -U postgres -d policy_store -c "ALTER TABLE policies ADD COLUMN IF NOT EXISTS updated_at timestamp with time zone DEFAULT now();" > /dev/null 2>&1
             print_success "Schema compatibility ensured"
         else
             print_error "Database seeding failed"
@@ -292,33 +289,24 @@ main() {
     fi
     
     echo ""
-    echo "🔐 Initializing policies..."
-    print_status "Setting up authorization policies..."
-    
-    # Clean up any existing broken policies first (after database is seeded)
-    print_status "Cleaning up existing policies..."
-    bash scripts/cleanup_policies.sh
-    
-    # Create working authorization policy
-    print_status "Creating working authorization policy..."
-    bash scripts/init_policies.sh
+    echo "🔐 Cerbos policies are managed via the UI or directly in cerbos/policies/"
+    print_status "Cerbos policies are automatically loaded from the mounted volume"
     
     echo ""
     echo "✅ Initialization complete!"
     echo ""
     echo "🌐 Services available at:"
     echo "   • Authentication UI: http://localhost:8083/auth.html"
-    echo "   • Policy Editor: http://localhost:8083"
+    echo "   • Policy Registry UI: http://localhost:8083"
     echo "   • Policy Registry API: http://localhost:8082"
-    echo "   • Envoy (Trino entrypoint): http://localhost:8081"
-    echo "   • Trino UI (direct): http://localhost:8080"
-    echo "   • OPA API: http://localhost:8181"
+    echo "   • Trino Coordinator: http://localhost:8080"
+    echo "   • Cerbos PDP: http://localhost:3593"
     echo ""
     echo "👥 Demo users:"
-    echo "   • Admin: admin@ues-mvp.com / admin123"
-    echo "   • Full Access: fullaccess@ues-mvp.com / user123"
-    echo "   • Postgres Only: postgresonly@ues-mvp.com / user123"
-    echo "   • Restricted: restricted@ues-mvp.com / user123"
+    echo "   • Admin: admin@pg-cerbos.com / admin123"
+    echo "   • Full Access: fullaccess@pg-cerbos.com / user123"
+    echo "   • Postgres Only: postgresonly@pg-cerbos.com / user123"
+    echo "   • Restricted: restricted@pg-cerbos.com / user123"
     echo ""
     echo "🚀 You can now:"
     echo "   1. Open http://localhost:8083/auth.html"

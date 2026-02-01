@@ -60,7 +60,7 @@ else
 fi
 
 # Check PostgreSQL
-if docker exec ues-mvp-postgres-1 pg_isready -U postgres > /dev/null 2>&1; then
+if docker exec pg-cerbos-postgres pg_isready -U postgres > /dev/null 2>&1; then
     print_status "OK" "PostgreSQL is running and ready"
 else
     print_status "ERROR" "PostgreSQL is not running or not ready"
@@ -76,7 +76,7 @@ echo "Testing user authentication..."
 # Test admin user
 ADMIN_RESPONSE=$(curl -s -X POST http://localhost:8082/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email": "admin@ues-mvp.com", "password": "admin123"}')
+  -d '{"email": "admin@pg-cerbos.com", "password": "admin123"}')
 
 if echo "$ADMIN_RESPONSE" | grep -q "access_token"; then
     ADMIN_TOKEN=$(echo "$ADMIN_RESPONSE" | jq -r '.access_token')
@@ -93,7 +93,7 @@ fi
 # Test restricted user
 RESTRICTED_RESPONSE=$(curl -s -X POST http://localhost:8082/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email": "restricted@ues-mvp.com", "password": "user123"}')
+  -d '{"email": "restricted@pg-cerbos.com", "password": "user123"}')
 
 if echo "$RESTRICTED_RESPONSE" | grep -q "access_token"; then
     RESTRICTED_TOKEN=$(echo "$RESTRICTED_RESPONSE" | jq -r '.access_token')
@@ -136,7 +136,7 @@ if [ ! -z "$ADMIN_TOKEN" ]; then
     PG_RESPONSE=$(curl -s -X POST http://localhost:8081/v1/statement \
       -H "Content-Type: application/json" \
       -H "X-User-Id: 1" \
-      -H "X-User-Email: admin@ues-mvp.com" \
+      -H "X-User-Email: admin@pg-cerbos.com" \
       -H "X-User-Roles: admin" \
       -d "$PG_QUERY")
     
@@ -153,7 +153,7 @@ if [ ! -z "$RESTRICTED_TOKEN" ]; then
     PG_RESPONSE=$(curl -s -X POST http://localhost:8081/v1/statement \
       -H "Content-Type: application/json" \
       -H "X-User-Id: 4" \
-      -H "X-User-Email: restricted@ues-mvp.com" \
+      -H "X-User-Email: restricted@pg-cerbos.com" \
       -H "X-User-Roles: restricted_user" \
       -d "$PG_QUERY")
     
@@ -177,7 +177,7 @@ if [ ! -z "$ADMIN_TOKEN" ]; then
     ICEBERG_RESPONSE=$(curl -s -X POST http://localhost:8081/v1/statement \
       -H "Content-Type: application/json" \
       -H "X-User-Id: 1" \
-      -H "X-User-Email: admin@ues-mvp.com" \
+      -H "X-User-Email: admin@pg-cerbos.com" \
       -H "X-User-Roles: admin" \
       -d "$ICEBERG_QUERY")
     
@@ -194,7 +194,7 @@ if [ ! -z "$RESTRICTED_TOKEN" ]; then
     ICEBERG_RESPONSE=$(curl -s -X POST http://localhost:8081/v1/statement \
       -H "Content-Type: application/json" \
       -H "X-User-Id: 4" \
-      -H "X-User-Email: restricted@ues-mvp.com" \
+      -H "X-User-Email: restricted@pg-cerbos.com" \
       -H "X-User-Roles: restricted_user" \
       -d "$ICEBERG_QUERY")
     
@@ -218,7 +218,7 @@ if [ ! -z "$RESTRICTED_TOKEN" ]; then
     SSN_RESPONSE=$(curl -s -X POST http://localhost:8081/v1/statement \
       -H "Content-Type: application/json" \
       -H "X-User-Id: 4" \
-      -H "X-User-Email: restricted@ues-mvp.com" \
+      -H "X-User-Email: restricted@pg-cerbos.com" \
       -H "X-User-Roles: restricted_user" \
       -d "$SSN_QUERY")
     

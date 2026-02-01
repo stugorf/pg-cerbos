@@ -8,7 +8,7 @@ This document outlines a comprehensive plan for migrating the UES MVP from **Ope
 
 ### Current Components to Replace
 
-1. **OPA Service** (`mvp-opa`)
+1. **OPA Service** (`pg-cerbos-opa`)
    - Evaluates Rego policies
    - Pulls bundles from policy-registry-backend
    - Exposes REST API at `http://opa:8181/v1/data/envoy/authz/allow`
@@ -310,7 +310,7 @@ grpc_service:
     "id": "user-123",
     "roles": ["full_access_user"],
     "attr": {
-      "email": "fullaccess@ues-mvp.com"
+      "email": "fullaccess@pg-cerbos.com"
     }
   },
   "resource": {
@@ -399,25 +399,25 @@ principals:
     id: "1"
     roles: ["admin"]
     attr:
-      email: "admin@ues-mvp.com"
+      email: "admin@pg-cerbos.com"
   
   full_access:
     id: "2"
     roles: ["full_access_user"]
     attr:
-      email: "fullaccess@ues-mvp.com"
+      email: "fullaccess@pg-cerbos.com"
   
   postgres_only:
     id: "3"
     roles: ["postgres_only_user"]
     attr:
-      email: "postgresonly@ues-mvp.com"
+      email: "postgresonly@pg-cerbos.com"
   
   restricted:
     id: "4"
     roles: ["restricted_user"]
     attr:
-      email: "restricted@ues-mvp.com"
+      email: "restricted@pg-cerbos.com"
 
 resources:
   postgres_query:
@@ -525,7 +525,7 @@ tests:
 ```yaml
 cerbos:
   image: ghcr.io/cerbos/cerbos:latest
-  container_name: mvp-cerbos
+  container_name: pg-cerbos-cerbos
   command:
     - server
     - --set=server.httpListenAddr=:3593

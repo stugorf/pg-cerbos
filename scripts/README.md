@@ -43,10 +43,10 @@ This directory contains scripts for testing and demonstrating the UES MVP policy
 
 | User | Email | Password | Purpose |
 |------|-------|----------|---------|
-| **Admin** | `admin@ues-mvp.com` | `admin123` | Full system access |
-| **Full Access** | `fullaccess@ues-mvp.com` | `user123` | All data access |
-| **Postgres Only** | `postgresonly@ues-mvp.com` | `user123` | PostgreSQL only |
-| **Restricted** | `restricted@ues-mvp.com` | `user123` | Both sources, SSN masked |
+| **Admin** | `admin@pg-cerbos.com` | `admin123` | Full system access |
+| **Full Access** | `fullaccess@pg-cerbos.com` | `user123` | All data access |
+| **Postgres Only** | `postgresonly@pg-cerbos.com` | `user123` | PostgreSQL only |
+| **Restricted** | `restricted@pg-cerbos.com` | `user123` | Both sources, SSN masked |
 
 ## 🧪 Testing Scenarios
 

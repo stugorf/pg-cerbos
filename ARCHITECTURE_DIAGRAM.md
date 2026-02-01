@@ -252,12 +252,12 @@ The UES MVP is a unified entitlements solution with comprehensive authentication
 
 ### Container Network: `trino-net`
 All services communicate over a dedicated Docker network with internal DNS resolution:
-- `postgres` → `mvp-postgres:5432`
-- `query-results-db` → `mvp-query-results:5432`
-- `trino-coordinator` → `mvp-trino-coordinator:8080`
-- `policy-registry-backend` → `mvp-policy-registry:8080`
-- `opa` → `mvp-opa:8181`
-- `envoy` → `mvp-envoy:8081`
+- `postgres` → `pg-cerbos-postgres:5432`
+- `query-results-db` → `pg-cerbos-query-results:5432`
+- `trino-coordinator` → `pg-cerbos-trino-coordinator:8080`
+- `policy-registry-backend` → `pg-cerbos-policy-registry:8080`
+- `opa` → `pg-cerbos-opa:8181`
+- `envoy` → `pg-cerbos-envoy:8081`
 
 ### External Port Mapping
 - **8080**: Trino UI and API

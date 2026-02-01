@@ -134,7 +134,7 @@ curl -X POST http://localhost:3594/check \
           "path": "/v1/statement",
           "headers": {
             "x-user-id": "1",
-            "x-user-email": "admin@ues-mvp.com",
+            "x-user-email": "admin@pg-cerbos.com",
             "x-user-roles": "admin"
           },
           "body": "SELECT 1"

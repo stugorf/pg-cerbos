@@ -64,7 +64,7 @@ echo ""
 print_status "Testing Admin User Login..."
 ADMIN_RESPONSE=$(curl -s -X POST "$API_BASE/auth/login" \
     -H "Content-Type: application/json" \
-    -d '{"email": "admin@ues-mvp.com", "password": "admin123"}')
+    -d '{"email": "admin@pg-cerbos.com", "password": "admin123"}')
 
 if echo "$ADMIN_RESPONSE" | grep -q "access_token"; then
     ADMIN_TOKEN=$(echo "$ADMIN_RESPONSE" | jq -r '.access_token')
@@ -81,7 +81,7 @@ echo ""
 print_status "Testing Full Access User Login..."
 FULL_ACCESS_RESPONSE=$(curl -s -X POST "$API_BASE/auth/login" \
     -H "Content-Type: application/json" \
-    -d '{"email": "fullaccess@ues-mvp.com", "password": "user123"}')
+    -d '{"email": "fullaccess@pg-cerbos.com", "password": "user123"}')
 
 if echo "$FULL_ACCESS_RESPONSE" | grep -q "access_token"; then
     FULL_ACCESS_TOKEN=$(echo "$FULL_ACCESS_RESPONSE" | jq -r '.access_token')
@@ -98,7 +98,7 @@ echo ""
 print_status "Testing Postgres Only User Login..."
 POSTGRES_ONLY_RESPONSE=$(curl -s -X POST "$API_BASE/auth/login" \
     -H "Content-Type: application/json" \
-    -d '{"email": "postgresonly@ues-mvp.com", "password": "user123"}')
+    -d '{"email": "postgresonly@pg-cerbos.com", "password": "user123"}')
 
 if echo "$POSTGRES_ONLY_RESPONSE" | grep -q "access_token"; then
     POSTGRES_ONLY_TOKEN=$(echo "$POSTGRES_ONLY_RESPONSE" | jq -r '.access_token')
@@ -115,7 +115,7 @@ echo ""
 print_status "Testing Restricted User Login..."
 RESTRICTED_RESPONSE=$(curl -s -X POST "$API_BASE/auth/login" \
     -H "Content-Type: application/json" \
-    -d '{"email": "restricted@ues-mvp.com", "password": "user123"}')
+    -d '{"email": "restricted@pg-cerbos.com", "password": "user123"}')
 
 if echo "$RESTRICTED_RESPONSE" | grep -q "access_token"; then
     RESTRICTED_TOKEN=$(echo "$RESTRICTED_RESPONSE" | jq -r '.access_token')
@@ -302,10 +302,10 @@ echo "   - Envoy Proxy (Trino): http://localhost:8081"
 echo "   - Trino UI: http://localhost:8080"
 echo ""
 echo "👤 Demo Users:"
-echo "   - admin@ues-mvp.com / admin123 (Admin)"
-echo "   - fullaccess@ues-mvp.com / user123 (Full Access)"
-echo "   - postgresonly@ues-mvp.com / user123 (Postgres Only)"
-echo "   - restricted@ues-mvp.com / user123 (Restricted)"
+echo "   - admin@pg-cerbos.com / admin123 (Admin)"
+echo "   - fullaccess@pg-cerbos.com / user123 (Full Access)"
+echo "   - postgresonly@pg-cerbos.com / user123 (Postgres Only)"
+echo "   - restricted@pg-cerbos.com / user123 (Restricted)"
 echo ""
 echo "💡 SQL Query Interface Features:"
 echo "   - Execute SQL queries directly in the browser"

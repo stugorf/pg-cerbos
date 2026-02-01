@@ -1,7 +1,7 @@
 services:
   postgres:
     image: postgres:16
-    container_name: mvp-postgres
+    container_name: pg-cerbos-postgres
     environment:
       POSTGRES_USER: ${PG_SUPERUSER:-postgres}
       POSTGRES_PASSWORD: ${PG_SUPERPASS:-postgres}
@@ -19,7 +19,7 @@ services:
 
   query-results-db:
     image: postgres:16
-    container_name: mvp-query-results
+    container_name: pg-cerbos-query-results
     environment:
       POSTGRES_USER: ${PG_SUPERUSER:-postgres}
       POSTGRES_PASSWORD: ${PG_SUPERPASS:-postgres}
@@ -38,7 +38,7 @@ services:
 
   minio:
     image: quay.io/minio/minio
-    container_name: mvp-minio
+    container_name: pg-cerbos-minio
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_USER:-minio}
@@ -51,7 +51,7 @@ services:
 
   nessie:
     image: ghcr.io/projectnessie/nessie:latest
-    container_name: mvp-nessie
+    container_name: pg-cerbos-nessie
     ports: ["19120:19120"]
     environment:
       NESSIE_VERSION_STORE_TYPE: JDBC2
@@ -69,7 +69,7 @@ services:
 
   trino-coordinator:
     image: trinodb/trino:474
-    container_name: mvp-trino-coordinator
+    container_name: pg-cerbos-trino-coordinator
     environment:
       - PG_SUPERUSER=${PG_SUPERUSER:-postgres}
       - PG_SUPERPASS=${PG_SUPERPASS:-postgres}
@@ -94,8 +94,9 @@ services:
       start_period: 60s
 
   trino-worker:
-    image: my-trino-worker:474-enhanced
-    container_name: mvp-trino-worker
+    build: ./trino/worker
+    image: pg-cerbos-trino-worker:474-enhanced
+    container_name: pg-cerbos-trino-worker
     environment:
       - PG_SUPERUSER=${PG_SUPERUSER:-postgres}
       - PG_SUPERPASS=${PG_SUPERPASS:-postgres}
@@ -105,12 +106,18 @@ services:
       - ./trino/worker:/etc/trino:ro
     depends_on: [trino-coordinator]
     networks: [trino-net]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/v1/info || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
 
   # Lightweight policy-registry: FastAPI + Postgres (policy_store DB)
   policy-registry-backend:
     build: ./policy-registry/backend
-    container_name: mvp-policy-registry
+    container_name: pg-cerbos-policy-registry
     environment:
       DATABASE_URL: postgresql+psycopg2://${PG_SUPERUSER:-postgres}:${PG_SUPERPASS:-postgres}@postgres:5432/policy_store
       QUERY_DB_HOST: query-results-db
@@ -140,7 +147,7 @@ services:
 
   policy-registry-frontend:
     build: ./policy-registry/frontend
-    container_name: mvp-policy-ui
+    container_name: pg-cerbos-policy-ui
     ports: ["8083:80"]
     environment:
       API_BASE: http://localhost:8082
@@ -149,7 +156,7 @@ services:
   # Cerbos Policy Decision Point
   cerbos:
     image: ghcr.io/cerbos/cerbos:latest
-    container_name: mvp-cerbos
+    container_name: pg-cerbos-cerbos
     command:
       - server
       - --config=/config/cerbos.yaml

@@ -1,7 +1,7 @@
-# Unified Entitlements MVP  
+# PG CERBOS  
 **Cerbos + Trino + Postgres + Iceberg + Authentication**
 
-This repository contains a minimal working MVP for a **unified entitlements solution** with **comprehensive authentication and authorization**.  
+This repository provides a **production-ready unified entitlements solution** with **comprehensive authentication and authorization**.  
 It demonstrates request-level access control using **Cerbos** as the core policy decision point, with policies stored as YAML files, enforced directly in the backend service. The system queries **Postgres** and **Iceberg** (MinIO + Nessie) through **Trino**.
 
 ---
@@ -10,7 +10,7 @@ It demonstrates request-level access control using **Cerbos** as the core policy
 
 ### Prerequisites
 - Docker and Docker Compose installed
-- Ports 8080-8083, 5434, 8181 available
+- Ports 8080-8083, 5434, 3593, 9000-9001, 19120 available
 
 ### 1. Start the Services
 ```bash
@@ -120,7 +120,7 @@ SELECT * FROM iceberg.demo.employee_performance ORDER BY performance_score DESC;
 │  │  • Resource Policy │  │        │  └─────────────────┘                  │
 │  │  • Principal Policy│  │        │  ┌─────────────────┐                  │
 │  │  • Audit Logging   │  │        │  │    Worker       │                  │
-│  └────────────────────┘  │        │  │  Port 8081      │                  │
+│  └────────────────────┘  │        │  │  (internal)     │                  │
 │                          │        │  │                 │                  │
 │  Policy Storage:         │        │  │ • Query Exec    │                  │
 │  /policies/*.yaml        │        │  │ • Data Processing│                │
@@ -341,10 +341,10 @@ The system provides **three approaches** for handling unauthorized field access:
 
 | Email | Password | Role | Access Level |
 |-------|----------|------|--------------|
-| `admin@ues-mvp.com` | `admin123` | Admin | Full system access |
-| `fullaccess@ues-mvp.com` | `user123` | Full Access | All data, all fields |
-| `postgresonly@ues-mvp.com` | `user123` | Postgres Only | Postgres only, all fields |
-| `restricted@ues-mvp.com` | `user123` | Restricted | All data, no SSN fields |
+| `admin@pg-cerbos.com` | `admin123` | Admin | Full system access |
+| `fullaccess@pg-cerbos.com` | `user123` | Full Access | All data, all fields |
+| `postgresonly@pg-cerbos.com` | `user123` | Postgres Only | Postgres only, all fields |
+| `restricted@pg-cerbos.com` | `user123` | Restricted | All data, no SSN fields |
 
 ---
 
@@ -365,7 +365,7 @@ just init
 
 # Or step by step:
 just up
-just ensure-policies
+# Wait for services to be healthy, then access the UI
 ```
 
 ---
@@ -399,7 +399,7 @@ just ensure-policies
 - **Trino Coordinator** → [http://localhost:8080](http://localhost:8080)
   - SQL query planning and coordination
   - Web UI for query monitoring
-- **Trino Worker** → Port 8081 (internal)
+- **Trino Worker** → Internal (no external port)
   - Query execution and data processing
 
 ### Data Storage Services
@@ -431,7 +431,7 @@ The Trino cluster runs with **production-ready configuration** and **field-level
 
 - **Automatic SSN masking** for restricted users
 - **Configurable field patterns** for different data types
-- **Real-time policy evaluation** through OPA
+- **Real-time policy evaluation** through Cerbos
 - **Audit logging** of all access attempts
 
 ---
@@ -517,61 +517,270 @@ LIMIT 5;
 
 ### Authenticated Queries via API
 
-#### Full Access User
-```bash
-# Query Postgres with full access
-curl -sS -X POST \
-  -H 'x-user-id: 2' \
-  -H 'x-user-email: fullaccess@ues-mvp.com' \
-  -H 'x-user-roles: full_access_user' \
-  --data-binary 'SELECT * FROM postgres.public.person LIMIT 5' \
-  http://localhost:8081/v1/statement
+All queries must go through the Policy Registry Backend API which enforces Cerbos authorization. Below are comprehensive examples showing both **successful** and **failed** queries for each user role.
 
-# Query Iceberg with full access
+#### Admin User (`admin@pg-cerbos.com`)
+
+**✅ Successful Queries** (Admin has full access to everything):
+
+```bash
+# Login as admin
+TOKEN=$(curl -s -X POST http://localhost:8082/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "admin@pg-cerbos.com", "password": "admin123"}' \
+  | jq -r '.access_token')
+
+# Query Postgres with all fields including SSN (allowed)
 curl -sS -X POST \
-  -H 'x-user-id: 2' \
-  -H 'x-user-email: fullaccess@ues-mvp.com' \
-  -H 'x-user-roles: full_access_user' \
-  --data-binary 'SELECT * FROM iceberg.demo.employee_performance ORDER BY performance_score DESC' \
-  http://localhost:8081/v1/statement
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT * FROM postgres.public.person LIMIT 5"}' \
+  http://localhost:8082/query | jq
+
+# Query Iceberg (allowed)
+curl -sS -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT * FROM iceberg.demo.employee_performance ORDER BY performance_score DESC"}' \
+  http://localhost:8082/query | jq
+
+# Cross-source JOIN query (allowed)
+curl -sS -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT p.first_name, p.last_name, p.ssn, ep.performance_score FROM postgres.public.person p JOIN iceberg.demo.employee_performance ep ON p.id = ep.employee_id LIMIT 5"}' \
+  http://localhost:8082/query | jq
 ```
 
-#### Postgres Only User
-```bash
-# Query Postgres (allowed)
-curl -sS -X POST \
-  -H 'x-user-id: 3' \
-  -H 'x-user-email: postgresonly@ues-mvp.com' \
-  -H 'x-user-roles: postgres_only_user' \
-  --data-binary 'SELECT * FROM postgres.public.person LIMIT 5' \
-  http://localhost:8081/v1/statement
-
-# Query Iceberg (denied)
-curl -sS -X POST \
-  -H 'x-user-id: 3' \
-  -H 'x-user-email: postgresonly@ues-mvp.com' \
-  -H 'x-user-roles: postgres_only_user' \
-  --data-binary 'SELECT * FROM iceberg.demo.employee_performance ORDER BY performance_score DESC' \
-  http://localhost:8081/v1/statement
+**Expected Success Response:**
+```json
+{
+  "success": true,
+  "data": [...],
+  "columns": [...],
+  "execution_time_ms": 123.45
+}
 ```
 
-#### Restricted User
-```bash
-# Query without SSN (allowed)
-curl -sS -X POST \
-  -H 'x-user-id: 4' \
-  -H 'x-user-email: restricted@ues-mvp.com' \
-  -H 'x-user-roles: restricted_user' \
-  --data-binary 'SELECT first_name, last_name, job_title FROM postgres.public.person LIMIT 5' \
-  http://localhost:8081/v1/statement
+#### Full Access User (`fullaccess@pg-cerbos.com`)
 
-# Query with SSN (denied)
+**✅ Successful Queries** (Can access all fields in both Postgres and Iceberg):
+
+```bash
+# Login as full access user
+TOKEN=$(curl -s -X POST http://localhost:8082/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "fullaccess@pg-cerbos.com", "password": "user123"}' \
+  | jq -r '.access_token')
+
+# Query Postgres with all fields including SSN (allowed)
 curl -sS -X POST \
-  -H 'x-user-id: 4' \
-  -H 'x-user-email: restricted@ues-mvp.com' \
-  -H 'x-user-roles: restricted_user' \
-  --data-binary 'SELECT ssn FROM postgres.public.person LIMIT 5' \
-  http://localhost:8081/v1/statement
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT * FROM postgres.public.person LIMIT 5"}' \
+  http://localhost:8082/query | jq
+
+# Query Iceberg (allowed)
+curl -sS -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT * FROM iceberg.demo.employee_performance ORDER BY performance_score DESC"}' \
+  http://localhost:8082/query | jq
+
+# Query with SSN field explicitly (allowed)
+curl -sS -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT first_name, last_name, ssn FROM postgres.public.person LIMIT 5"}' \
+  http://localhost:8082/query | jq
+```
+
+**Expected Success Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": 1,
+      "first_name": "John",
+      "last_name": "Doe",
+      "ssn": "123-45-6789",
+      ...
+    }
+  ],
+  "columns": ["id", "first_name", "last_name", "ssn", ...],
+  "execution_time_ms": 98.76
+}
+```
+
+**❌ Failed Queries** (Full Access User has no restrictions, so all queries should succeed):
+
+*Note: Full Access User has no query restrictions, so there are no examples of failed queries for this role.*
+
+#### Postgres Only User (`postgresonly@pg-cerbos.com`)
+
+**✅ Successful Queries** (Can access all Postgres fields):
+
+```bash
+# Login as postgres only user
+TOKEN=$(curl -s -X POST http://localhost:8082/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "postgresonly@pg-cerbos.com", "password": "user123"}' \
+  | jq -r '.access_token')
+
+# Query Postgres with all fields including SSN (allowed)
+curl -sS -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT * FROM postgres.public.person LIMIT 5"}' \
+  http://localhost:8082/query | jq
+
+# Query Postgres with specific fields (allowed)
+curl -sS -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT first_name, last_name, ssn, job_title FROM postgres.public.person WHERE age > 30"}' \
+  http://localhost:8082/query | jq
+```
+
+**Expected Success Response:**
+```json
+{
+  "success": true,
+  "data": [...],
+  "columns": [...],
+  "execution_time_ms": 87.65
+}
+```
+
+**❌ Failed Queries** (Cannot access Iceberg):
+
+```bash
+# Query Iceberg (denied by Cerbos)
+curl -sS -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT * FROM iceberg.demo.employee_performance ORDER BY performance_score DESC"}' \
+  http://localhost:8082/query | jq
+```
+
+**Expected Failure Response:**
+```json
+{
+  "success": false,
+  "error": "Query not authorized",
+  "message": "Cerbos authorization check failed: action 'query' on resource 'iceberg' denied",
+  "status_code": 403
+}
+```
+
+#### Restricted User (`restricted@pg-cerbos.com`)
+
+**✅ Successful Queries** (Can access Postgres and Iceberg, but NOT SSN fields):
+
+```bash
+# Login as restricted user
+TOKEN=$(curl -s -X POST http://localhost:8082/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email": "restricted@pg-cerbos.com", "password": "user123"}' \
+  | jq -r '.access_token')
+
+# Query Postgres without SSN (allowed)
+curl -sS -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT first_name, last_name, job_title, age FROM postgres.public.person LIMIT 5"}' \
+  http://localhost:8082/query | jq
+
+# Query Iceberg (allowed)
+curl -sS -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT * FROM iceberg.demo.employee_performance ORDER BY performance_score DESC"}' \
+  http://localhost:8082/query | jq
+
+# Query with SELECT * but excluding SSN in WHERE clause (allowed - SSN not in SELECT)
+curl -sS -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT first_name, last_name, job_title FROM postgres.public.person WHERE age > 25 LIMIT 5"}' \
+  http://localhost:8082/query | jq
+```
+
+**Expected Success Response:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "first_name": "John",
+      "last_name": "Doe",
+      "job_title": "Engineer",
+      "age": 35
+    }
+  ],
+  "columns": ["first_name", "last_name", "job_title", "age"],
+  "execution_time_ms": 76.54
+}
+```
+
+**❌ Failed Queries** (Cannot access SSN fields):
+
+```bash
+# Query with SSN field explicitly (denied by Cerbos)
+curl -sS -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT ssn FROM postgres.public.person LIMIT 5"}' \
+  http://localhost:8082/query | jq
+```
+
+**Expected Failure Response:**
+```json
+{
+  "success": false,
+  "error": "Query not authorized",
+  "message": "Cerbos authorization check failed: action 'query' on resource 'postgres' denied - restricted users cannot access SSN fields",
+  "status_code": 403
+}
+```
+
+```bash
+# Query with SELECT * including SSN (denied by Cerbos)
+curl -sS -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT * FROM postgres.public.person LIMIT 5"}' \
+  http://localhost:8082/query | jq
+```
+
+**Expected Failure Response:**
+```json
+{
+  "success": false,
+  "error": "Query not authorized",
+  "message": "Cerbos authorization check failed: action 'query' on resource 'postgres' denied - query contains restricted field 'ssn'",
+  "status_code": 403
+}
+```
+
+```bash
+# Query with SSN in JOIN (denied by Cerbos)
+curl -sS -X POST \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "SELECT p.first_name, p.ssn, ep.performance_score FROM postgres.public.person p JOIN iceberg.demo.employee_performance ep ON p.id = ep.employee_id LIMIT 5"}' \
+  http://localhost:8082/query | jq
+```
+
+**Expected Failure Response:**
+```json
+{
+  "success": false,
+  "error": "Query not authorized",
+  "message": "Cerbos authorization check failed: action 'query' on resource 'postgres' denied - query contains restricted field 'ssn'",
+  "status_code": 403
+}
 ```
 
 ---
@@ -582,7 +791,7 @@ curl -sS -X POST \
 Open **Authentication UI** → [http://localhost:8083/auth.html](http://localhost:8083/auth.html)
 
 ### 2. Login as Admin
-Use `admin@ues-mvp.com` / `admin123` to access administrative features
+Use `admin@pg-cerbos.com` / `admin123` to access administrative features
 
 ### 3. Manage Users
 - **Users Tab**: Create, edit, and manage user accounts
@@ -621,9 +830,9 @@ just down -v         # stop & remove containers + volumes (clean slate)
 just ps              # show container status
 just logs            # tail logs
 just init            # complete system initialization (recommended)
-just ensure-policies # ensure OPA policies are loaded
-just check-policies  # validate policy health
-just cleanup-policies # remove all policies
+just check-cerbos    # check Cerbos service health
+just validate-cerbos-policies  # validate Cerbos policy syntax
+just test-cerbos-policies      # run Cerbos policy tests
 ```
 
 ---
@@ -725,20 +934,21 @@ This removes all containers and volumes for a completely clean slate.
 
 1. **"Schema Not Found" errors**
    - Run `just init` to ensure all schemas are created
-   - Check that Iceberg catalog is accessible: `docker exec mvp-trino-coordinator trino --execute "SHOW CATALOGS"`
+   - Check that Iceberg catalog is accessible: `docker exec pg-cerbos-trino-coordinator trino --execute "SHOW CATALOGS"`
 
 2. **"generator didn't stop after throw()" errors**
    - This usually indicates hanging queries in Trino
    - Run `just init` to clean up hanging queries
-   - Or manually check: `docker exec mvp-trino-coordinator trino --execute "SELECT * FROM system.runtime.queries WHERE state = 'RUNNING'"`
+   - Or manually check: `docker exec pg-cerbos-trino-coordinator trino --execute "SELECT * FROM system.runtime.queries WHERE state = 'RUNNING'"`
 
 3. **Authentication failures**
-   - Ensure database is seeded: `docker exec mvp-postgres psql -U postgres -d policy_store -c "SELECT COUNT(*) FROM users;"`
+   - Ensure database is seeded: `docker exec pg-cerbos-postgres psql -U postgres -d policy_store -c "SELECT COUNT(*) FROM users;"`
    - Run `just init` to re-seed if needed
 
-4. **Policy loading issues**
-   - Run `just check-policies` to diagnose
-   - Use `just cleanup-policies` followed by `just init` for clean slate
+4. **Cerbos policy issues**
+   - Check Cerbos health: `just check-cerbos`
+   - Validate policies: `just validate-cerbos-policies`
+   - Check Cerbos logs: `just cerbos-logs`
 
 ### Health Checks
 
@@ -746,14 +956,14 @@ This removes all containers and volumes for a completely clean slate.
 # Check all services
 just ps
 
-# Check policy health
-just check-policies
+# Check Cerbos health
+just check-cerbos
 
 # Check Trino status
-docker exec mvp-trino-coordinator trino --execute "SELECT 1"
+docker exec pg-cerbos-trino-coordinator trino --execute "SELECT 1"
 
 # Check database connectivity
-docker exec mvp-postgres psql -U postgres -c "SELECT version()"
+docker exec pg-cerbos-postgres psql -U postgres -c "SELECT version()"
 ```
 
 ---

@@ -66,7 +66,7 @@ echo ""
 echo "6. Testing Envoy endpoint (with auth headers)..."
 ENVOY_RESPONSE=$(curl -s -X POST \
   -H 'x-user-id: 2' \
-  -H 'x-user-email: fullaccess@ues-mvp.com' \
+  -H 'x-user-email: fullaccess@pg-cerbos.com' \
   -H 'x-user-roles: full_access_user' \
   -H 'Content-Type: text/plain' \
   --data-binary 'SELECT * FROM postgres.public.person LIMIT 1' \

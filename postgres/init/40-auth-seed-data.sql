@@ -1,5 +1,5 @@
 -- Seed data for Authentication and Authorization System
--- This file populates the auth tables with initial data for the UES MVP
+-- This file populates the auth tables with initial data for the pg-cerbos project
 
 -- Insert roles
 INSERT INTO roles (name, description) VALUES
@@ -32,36 +32,36 @@ ON CONFLICT (name) DO NOTHING;
 
 -- Insert admin user (password: admin123)
 -- Note: This hash is for 'admin123' - generated with the container's Python environment
-INSERT INTO users (email, password_hash, first_name, last_name) VALUES
-    ('admin@ues-mvp.com', '$2b$12$JJ458WVWdus4yt6fs8v7F.2kBN9UIz24SVOqKV.5yQ/V4oEiRqKrO', 'Admin', 'User')
-ON CONFLICT (email) DO NOTHING;
+INSERT INTO users (email, password_hash, first_name, last_name, is_active) VALUES
+    ('admin@pg-cerbos.com', '$2b$12$JJ458WVWdus4yt6fs8v7F.2kBN9UIz24SVOqKV.5yQ/V4oEiRqKrO', 'Admin', 'User', TRUE)
+ON CONFLICT (email) DO UPDATE SET is_active = TRUE;
 
 -- Insert demo users (password: user123)
-INSERT INTO users (email, password_hash, first_name, last_name) VALUES
-    ('fullaccess@ues-mvp.com', '$2b$12$PJUV7BHtKSRW.eP2CGwlUOE.mEsnmWPTrFXDzWbPWq2u89093WkAq', 'Full', 'Access'),
-    ('postgresonly@ues-mvp.com', '$2b$12$PJUV7BHtKSRW.eP2CGwlUOE.mEsnmWPTrFXDzWbPWq2u89093WkAq', 'Postgres', 'Only'),
-    ('restricted@ues-mvp.com', '$2b$12$PJUV7BHtKSRW.eP2CGwlUOE.mEsnmWPTrFXDzWbPWq2u89093WkAq', 'Restricted', 'User')
-ON CONFLICT (email) DO NOTHING;
+INSERT INTO users (email, password_hash, first_name, last_name, is_active) VALUES
+    ('fullaccess@pg-cerbos.com', '$2b$12$PJUV7BHtKSRW.eP2CGwlUOE.mEsnmWPTrFXDzWbPWq2u89093WkAq', 'Full', 'Access', TRUE),
+    ('postgresonly@pg-cerbos.com', '$2b$12$PJUV7BHtKSRW.eP2CGwlUOE.mEsnmWPTrFXDzWbPWq2u89093WkAq', 'Postgres', 'Only', TRUE),
+    ('restricted@pg-cerbos.com', '$2b$12$PJUV7BHtKSRW.eP2CGwlUOE.mEsnmWPTrFXDzWbPWq2u89093WkAq', 'Restricted', 'User', TRUE)
+ON CONFLICT (email) DO UPDATE SET is_active = TRUE;
 
 -- Assign roles to users
 INSERT INTO user_roles (user_id, role_id) 
 SELECT u.id, r.id FROM users u, roles r 
-WHERE u.email = 'admin@ues-mvp.com' AND r.name = 'admin'
+WHERE u.email = 'admin@pg-cerbos.com' AND r.name = 'admin'
 ON CONFLICT DO NOTHING;
 
 INSERT INTO user_roles (user_id, role_id) 
 SELECT u.id, r.id FROM users u, roles r 
-WHERE u.email = 'fullaccess@ues-mvp.com' AND r.name = 'full_access_user'
+WHERE u.email = 'fullaccess@pg-cerbos.com' AND r.name = 'full_access_user'
 ON CONFLICT DO NOTHING;
 
 INSERT INTO user_roles (user_id, role_id) 
 SELECT u.id, r.id FROM users u, roles r 
-WHERE u.email = 'postgresonly@ues-mvp.com' AND r.name = 'postgres_only_user'
+WHERE u.email = 'postgresonly@pg-cerbos.com' AND r.name = 'postgres_only_user'
 ON CONFLICT DO NOTHING;
 
 INSERT INTO user_roles (user_id, role_id) 
 SELECT u.id, r.id FROM users u, roles r 
-WHERE u.email = 'restricted@ues-mvp.com' AND r.name = 'restricted_user'
+WHERE u.email = 'restricted@pg-cerbos.com' AND r.name = 'restricted_user'
 ON CONFLICT DO NOTHING;
 
 -- Assign permissions to roles

@@ -9,10 +9,10 @@
 
 | User | Email | Password | Access Level |
 |------|-------|----------|--------------|
-| **Admin** | `admin@ues-mvp.com` | `admin123` | Full system access |
-| **Full Access** | `fullaccess@ues-mvp.com` | `user123` | All data, no admin |
-| **Postgres Only** | `postgresonly@ues-mvp.com` | `user123` | PostgreSQL only |
-| **Restricted** | `restricted@ues-mvp.com` | `user123` | Both sources, SSN masked |
+| **Admin** | `admin@pg-cerbos.com` | `admin123` | Full system access |
+| **Full Access** | `fullaccess@pg-cerbos.com` | `user123` | All data, no admin |
+| **Postgres Only** | `postgresonly@pg-cerbos.com` | `user123` | PostgreSQL only |
+| **Restricted** | `restricted@pg-cerbos.com` | `user123` | Both sources, SSN masked |
 
 ---
 

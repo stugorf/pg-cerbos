@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>UES MVP - Authentication</title>
+    <title>PG CERBOS - Authentication</title>
     <link rel="stylesheet" href="auth-styles.css?v=1.0.5">
     <script>window.API_BASE = (new URL(document.location)).searchParams.get("api") || "http://localhost:8082";</script>
     <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
@@ -18,9 +18,9 @@
             <div class="auth-card">
                 <!-- EK Logo -->
                 <div class="ek-logo">
-                    <img src="images/EKgo.png" alt="EK Logo" class="logo-image">
+                    <img src="images/pg.svg" alt="EK Logo" class="logo-image">
                 </div>
-                <h1>UES MVP Authentication</h1>
+                <h1>PG CERBOS Authentication</h1>
                 <form id="login-form" class="auth-form">
                     <div class="form-group">
                         <label for="email">Email:</label>
@@ -41,9 +41,9 @@
             <header class="dashboard-header">
                 <!-- EK Logo in Dashboard Header -->
                 <div class="ek-logo-header">
-                    <img src="images/EKgo.png" alt="EK Logo" class="logo-image-header">
+                    <img src="images/pg.svg" alt="EK Logo" class="logo-image-header">
                 </div>
-                <h1>UES MVP Dashboard</h1>
+                <h1>PG CERBOS Dashboard</h1>
                 <div class="user-info">
                     <span id="user-email"></span>
                     <span id="user-roles"></span>
@@ -209,7 +209,7 @@
         <!-- Version Footer -->
         <div class="version-footer">
             <div class="footer-content">
-                <span class="footer-version" id="footer-version">UES MVP v1.0.5</span>
+                <span class="footer-version" id="footer-version">PG CERBOS v1.0.5</span>
                 <span class="footer-build" id="footer-build">Build 20260126_1200</span>
                 <span class="footer-timestamp" id="footer-timestamp"></span>
             </div>
@@ -294,7 +294,7 @@
         const TIMESTAMP = Date.now(); // Force cache refresh
         const BUILD_ID = "20260126_1200"; // Build date: Jan 26, 2026 - Cerbos authorization logging feature
             
-            console.log('UES MVP Frontend loaded with version:', VERSION);
+            console.log('PG CERBOS Frontend loaded with version:', VERSION);
             console.log('JSON_API_URL:', JSON_API_URL);
             console.log('ENVOY_URL (legacy):', ENVOY_URL);
             console.log('Script loaded at:', new Date().toISOString());
@@ -335,7 +335,7 @@
             const footerVersion = document.getElementById('footer-version');
             const footerBuild = document.getElementById('footer-build');
             const footerTimestamp = document.getElementById('footer-timestamp');
-            if (footerVersion) footerVersion.textContent = `UES MVP v${VERSION}`;
+            if (footerVersion) footerVersion.textContent = `PG CERBOS v${VERSION}`;
             if (footerBuild) footerBuild.textContent = `Build ${BUILD_ID}`;
             if (footerTimestamp) footerTimestamp.textContent = new Date().toLocaleDateString();
         }

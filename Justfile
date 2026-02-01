@@ -70,28 +70,6 @@ setup-mvp:
     @echo "🎉 Setup complete! Your system is ready to use."
     @echo "🌐 Access the UI at: http://localhost:8083/auth.html"
 
-# Clean up existing policies (useful for troubleshooting)
-cleanup-policies:
-    bash scripts/cleanup_policies.sh
-
-# Ensure policies are loaded in OPA
-ensure-policies:
-    @echo "🔍 Checking if policies are loaded..."
-    @if ! curl -s http://localhost:8181/v1/policies | grep -q "data"; then \
-        echo "⚠️  Policies not loaded, initializing..."; \
-        just validate-policies; \
-        bash scripts/init_policies.sh; \
-    else \
-        echo "✅ Policies already loaded"; \
-    fi
-
-# Check policy system health
-check-policies:
-    bash scripts/check_policy_health.sh
-
-# Validate Rego policy syntax before loading
-validate-policies:
-    bash scripts/validate_rego_syntax.sh
 
 # =============================================================================
 # Cerbos Management Commands
@@ -105,21 +83,6 @@ check-cerbos:
 # Check Cerbos configuration
 check-cerbos-config:
     bash scripts/check-cerbos-config.sh
-
-# Check Cerbos adapter health
-check-cerbos-adapter:
-    @echo "🔍 Checking Cerbos adapter status..."
-    @echo "Container status:"
-    @docker compose ps cerbos-adapter 2>/dev/null || echo "  ⚠️  Cannot check container status"
-    @echo ""
-    @echo "Testing health endpoint (timeout: 2s)..."
-    @timeout 2 curl -s http://localhost:3594/health 2>/dev/null | jq . || echo "  ❌ Adapter not responding on port 3594"
-    @echo ""
-    @echo "💡 If adapter is not running, start it with: just start-cerbos-adapter"
-
-# Build and start Cerbos adapter
-start-cerbos-adapter:
-    bash scripts/start-cerbos-adapter.sh
 
 # Validate Cerbos policies
 validate-cerbos-policies:
@@ -148,19 +111,8 @@ list-cerbos-policies:
 
 # Show Cerbos service logs
 cerbos-logs:
-    docker compose logs -f cerbos cerbos-adapter
+    docker compose logs -f cerbos
 
-# Start Envoy service
-start-envoy:
-    bash scripts/start-envoy.sh
-
-# Check Envoy status
-check-envoy:
-    @echo "🔍 Checking Envoy status..."
-    @docker compose ps envoy 2>/dev/null || echo "  ⚠️  Envoy not running"
-    @echo ""
-    @echo "Testing Envoy endpoint (timeout: 2s)..."
-    @timeout 2 curl -s http://localhost:8081/v1/info 2>/dev/null | head -3 || echo "  ❌ Envoy not responding on port 8081"
 
 # Test authorization flow
 test-auth:
@@ -170,23 +122,33 @@ test-auth:
 verify:
     bash scripts/verify_setup.sh
 
-# Run the demo queries against Postgres (role-based allow)
+# Run the demo queries against Postgres (via backend API with Cerbos auth)
 demo-postgres:
+    @echo "🔐 Getting auth token..."
+    @TOKEN=$$(curl -s -X POST http://localhost:8082/auth/login \
+        -H "Content-Type: application/json" \
+        -d '{"email": "fullaccess@pg-cerbos.com", "password": "user123"}' \
+        | jq -r '.access_token'); \
+    echo "📊 Querying Postgres..."; \
     curl -sS -X POST \
-        -H 'x-user-id: alice' \
-        -H 'x-user-email: alice@example.com' \
-        -H 'x-user-roles: full_access_user' \
-        -d "SELECT COUNT(*) as total_records FROM postgres.public.person" \
-        http://localhost:8081/v1/statement | jq
+        -H "Authorization: Bearer $$TOKEN" \
+        -H "Content-Type: application/json" \
+        -d '{"query": "SELECT COUNT(*) as total_records FROM postgres.public.person"}' \
+        http://localhost:8082/query | jq
 
-# Run the demo queries against Iceberg (role-based allow)
+# Run the demo queries against Iceberg (via backend API with Cerbos auth)
 demo-iceberg:
+    @echo "🔐 Getting auth token..."
+    @TOKEN=$$(curl -s -X POST http://localhost:8082/auth/login \
+        -H "Content-Type: application/json" \
+        -d '{"email": "fullaccess@pg-cerbos.com", "password": "user123"}' \
+        | jq -r '.access_token'); \
+    echo "📊 Querying Iceberg..."; \
     curl -sS -X POST \
-        -H 'x-user-id: bob' \
-        -H 'x-user-email: bob@example.com' \
-        -H 'x-user-roles: full_access_user' \
-        -d "SELECT COUNT(*) as total_records FROM iceberg.demo.employee_performance" \
-        http://localhost:8081/v1/statement | jq
+        -H "Authorization: Bearer $$TOKEN" \
+        -H "Content-Type: application/json" \
+        -d '{"query": "SELECT COUNT(*) as total_records FROM iceberg.demo.employee_performance"}' \
+        http://localhost:8082/query | jq
 
 # Rebuild and bounce a single service (usage: just rebuild trino)
 rebuild SERVICE:
@@ -331,8 +293,6 @@ help:
     @echo "  ps            - Show container status"
     @echo "  init          - Complete system initialization for new developers"
     @echo "  setup-mvp     - Complete setup: up + init (for new developers)"
-    @echo "  cleanup-policies - Clean up existing policies (troubleshooting)"
-    @echo "  check-policies   - Check policy system health"
     @echo "  verify        - Verify system setup and test authentication"
     @echo "  init-iceberg  - Initialize Iceberg objects (DEPRECATED - use 'just init')"
     @echo "  demo-postgres - Run demo queries against Postgres"

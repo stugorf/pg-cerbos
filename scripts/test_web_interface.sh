@@ -52,7 +52,7 @@ echo "================================="
 echo "Testing Admin User login..."
 ADMIN_RESPONSE=$(curl -s -X POST http://localhost:8082/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email": "admin@ues-mvp.com", "password": "admin123"}')
+  -d '{"email": "admin@pg-cerbos.com", "password": "admin123"}')
 
 if echo "$ADMIN_RESPONSE" | grep -q "access_token"; then
     ADMIN_TOKEN=$(echo "$ADMIN_RESPONSE" | jq -r '.access_token')
@@ -70,7 +70,7 @@ echo ""
 echo "Testing Full Access User login..."
 FULL_ACCESS_RESPONSE=$(curl -s -X POST http://localhost:8082/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email": "fullaccess@ues-mvp.com", "password": "user123"}')
+  -d '{"email": "fullaccess@pg-cerbos.com", "password": "user123"}')
 
 if echo "$FULL_ACCESS_RESPONSE" | grep -q "access_token"; then
     FULL_ACCESS_TOKEN=$(echo "$FULL_ACCESS_RESPONSE" | jq -r '.access_token')
@@ -88,7 +88,7 @@ echo ""
 echo "Testing Postgres-Only User login..."
 POSTGRES_ONLY_RESPONSE=$(curl -s -X POST http://localhost:8082/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email": "postgresonly@ues-mvp.com", "password": "user123"}')
+  -d '{"email": "postgresonly@pg-cerbos.com", "password": "user123"}')
 
 if echo "$POSTGRES_ONLY_RESPONSE" | grep -q "access_token"; then
     POSTGRES_ONLY_TOKEN=$(echo "$POSTGRES_ONLY_RESPONSE" | jq -r '.access_token')
@@ -106,7 +106,7 @@ echo ""
 echo "Testing Restricted User login..."
 RESTRICTED_RESPONSE=$(curl -s -X POST http://localhost:8082/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email": "restricted@ues-mvp.com", "password": "user123"}')
+  -d '{"email": "restricted@pg-cerbos.com", "password": "user123"}')
 
 if echo "$RESTRICTED_RESPONSE" | grep -q "access_token"; then
     RESTRICTED_TOKEN=$(echo "$RESTRICTED_RESPONSE" | jq -r '.access_token')
@@ -141,7 +141,7 @@ fi
 if [ ! -z "$ADMIN_TOKEN" ]; then
     echo "Testing users endpoint (admin only)..."
     USERS_RESPONSE=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" http://localhost:8082/users)
-    if echo "$USERS_RESPONSE" | grep -q "admin@ues-mvp.com"; then
+    if echo "$USERS_RESPONSE" | grep -q "admin@pg-cerbos.com"; then
         print_status "OK" "Users endpoint accessible to admin"
         USER_COUNT=$(echo "$USERS_RESPONSE" | jq '. | length')
         print_status "INFO" "Found $USER_COUNT users"
@@ -166,7 +166,7 @@ echo ""
 echo "Testing user info endpoint..."
 if [ ! -z "$ADMIN_TOKEN" ]; then
     USER_INFO_RESPONSE=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" http://localhost:8082/auth/me)
-    if echo "$USER_INFO_RESPONSE" | grep -q "admin@ues-mvp.com"; then
+    if echo "$USER_INFO_RESPONSE" | grep -q "admin@pg-cerbos.com"; then
         print_status "OK" "User info endpoint working for admin"
     else
         print_status "ERROR" "User info endpoint not working for admin"
@@ -186,10 +186,10 @@ echo "3. Use the SQL query interface to test data access"
 echo "4. Verify that access restrictions work in the web interface"
 echo ""
 echo "🔐 Test User Accounts:"
-echo "- Admin: admin@ues-mvp.com (admin123)"
-echo "- Full Access: fullaccess@ues-mvp.com (user123)"
-echo "- Postgres Only: postgresonly@ues-mvp.com (user123)"
-echo "- Restricted: restricted@ues-mvp.com (user123)"
+echo "- Admin: admin@pg-cerbos.com (admin123)"
+echo "- Full Access: fullaccess@pg-cerbos.com (user123)"
+echo "- Postgres Only: postgresonly@pg-cerbos.com (user123)"
+echo "- Restricted: restricted@pg-cerbos.com (user123)"
 echo ""
 echo "📚 Demo Queries:"
 echo "Use the queries from scripts/demo_queries_by_user.sql in the web interface"

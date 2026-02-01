@@ -6,28 +6,28 @@ principals:
     id: "1"
     roles: ["admin"]
     attr:
-      email: "admin@ues-mvp.com"
+      email: "admin@pg-cerbos.com"
       is_active: true
   
   full_access:
     id: "2"
     roles: ["full_access_user"]
     attr:
-      email: "fullaccess@ues-mvp.com"
+      email: "fullaccess@pg-cerbos.com"
       is_active: true
   
   postgres_only:
     id: "3"
     roles: ["postgres_only_user"]
     attr:
-      email: "postgresonly@ues-mvp.com"
+      email: "postgresonly@pg-cerbos.com"
       is_active: true
   
   restricted:
     id: "4"
     roles: ["restricted_user"]
     attr:
-      email: "restricted@ues-mvp.com"
+      email: "restricted@pg-cerbos.com"
       is_active: true
 
 resources:

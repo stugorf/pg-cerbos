@@ -6,7 +6,7 @@ The UES MVP implements a comprehensive Role-Based Access Control (RBAC) system t
 
 ## User Roles and Capabilities
 
-### 1. Admin User (`admin@ues-mvp.com`)
+### 1. Admin User (`admin@pg-cerbos.com`)
 - **Password**: `admin123`
 - **Capabilities**: Full system access
 - **Data Access**: 
@@ -15,7 +15,7 @@ The UES MVP implements a comprehensive Role-Based Access Control (RBAC) system t
   - ✅ SSN fields: Unrestricted access
   - ✅ System administration: User, role, and permission management
 
-### 2. Full Access User (`fullaccess@ues-mvp.com`)
+### 2. Full Access User (`fullaccess@pg-cerbos.com`)
 - **Password**: `user123`
 - **Capabilities**: Full data access without admin privileges
 - **Data Access**:
@@ -24,7 +24,7 @@ The UES MVP implements a comprehensive Role-Based Access Control (RBAC) system t
   - ✅ SSN fields: Unrestricted access
   - ❌ System administration: No access
 
-### 3. Postgres-Only User (`postgresonly@ues-mvp.com`)
+### 3. Postgres-Only User (`postgresonly@pg-cerbos.com`)
 - **Password**: `user123`
 - **Capabilities**: Limited to PostgreSQL data only
 - **Data Access**:
@@ -33,7 +33,7 @@ The UES MVP implements a comprehensive Role-Based Access Control (RBAC) system t
   - ✅ SSN fields: Unrestricted access (within PostgreSQL)
   - ❌ System administration: No access
 
-### 4. Restricted User (`restricted@ues-mvp.com`)
+### 4. Restricted User (`restricted@pg-cerbos.com`)
 - **Password**: `user123`
 - **Capabilities**: Access to both systems with SSN field restrictions
 - **Data Access**:

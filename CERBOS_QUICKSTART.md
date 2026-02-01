@@ -53,7 +53,7 @@ just test-cerbos-policies
 # Test query through Envoy (now using Cerbos)
 curl -X POST \
   -H 'x-user-id: 2' \
-  -H 'x-user-email: fullaccess@ues-mvp.com' \
+  -H 'x-user-email: fullaccess@pg-cerbos.com' \
   -H 'x-user-roles: full_access_user' \
   --data-binary 'SELECT * FROM postgres.public.person LIMIT 5' \
   http://localhost:8081/v1/statement

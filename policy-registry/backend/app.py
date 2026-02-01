@@ -1522,7 +1522,7 @@ def get_cerbos_logs(current_user: User = Depends(get_current_admin_user), lines:
     try:
         # Get logs from Cerbos container
         result = subprocess.run(
-            ["docker", "logs", "--tail", str(lines), "mvp-cerbos", "--timestamps"],
+            ["docker", "logs", "--tail", str(lines), "pg-cerbos-cerbos", "--timestamps"],
             capture_output=True,
             text=True,
             timeout=5
@@ -1648,28 +1648,19 @@ def get_backend_authz_logs(lines: int = 100):
 
 
 # =============================================================================
-# OPA bundle endpoint (kept for backward compatibility, will be removed)
+# OPA bundle endpoint (DEPRECATED - OPA has been removed, kept for legacy compatibility)
 # =============================================================================
 
 # OPA bundle endpoint: returns a .tar.gz with all published policies for bundle 'main'
-@API.get("/bundles/main.tar.gz")
+# NOTE: This endpoint is deprecated. The system now uses Cerbos for authorization.
+# This endpoint is kept only for backward compatibility with legacy OPA editor.
+@API.get("/bundles/main.tar.gz", deprecated=True)
 def get_bundle(db: Session = Depends(get_db)):
-    """Get OPA bundle (public endpoint, no authentication required)."""
-    rows = db.execute(select(Policy).where(Policy.published==True, Policy.bundle_name=="main")).scalars().all()
-    if not rows:
-        # empty bundle still valid
-        rows = []
+    """Get OPA bundle (DEPRECATED - OPA has been removed, use Cerbos policies instead)."""
+    # Return empty bundle since OPA is no longer used
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
-        for p in rows:
-            # place under /policies/<path>
-            path = f"policies/{p.path}"
-            data = p.rego_text.encode("utf-8")
-            info = tarfile.TarInfo(name=path)
-            info.size = len(data)
-            info.mtime = int(time.time())
-            tar.addfile(info, io.BytesIO(data))
-        # Rego requires a .manifest (optional); we skip for simplicity
+        pass  # Empty bundle
     buf.seek(0)
     return Response(
         content=buf.read(),

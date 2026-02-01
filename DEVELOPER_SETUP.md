@@ -92,10 +92,10 @@ This will test the entire authentication system and verify that:
 - `query_results`: Query execution history and results
 
 ### Authentication
-- **Admin User**: `admin@ues-mvp.com` / `admin123`
-- **Full Access User**: `fullaccess@ues-mvp.com` / `user123`
-- **Postgres Only User**: `postgresonly@ues-mvp.com` / `user123`
-- **Restricted User**: `restricted@ues-mvp.com` / `user123`
+- **Admin User**: `admin@pg-cerbos.com` / `admin123`
+- **Full Access User**: `fullaccess@pg-cerbos.com` / `user123`
+- **Postgres Only User**: `postgresonly@pg-cerbos.com` / `user123`
+- **Restricted User**: `restricted@pg-cerbos.com` / `user123`
 
 ### Data Sources
 - **PostgreSQL**: `demo_data.person` table with 10 sample records
@@ -206,10 +206,10 @@ just up
 #### Database Connection Issues
 ```bash
 # Check PostgreSQL health
-docker exec mvp-postgres pg_isready -U postgres
+docker exec pg-cerbos-postgres pg_isready -U postgres
 
 # Check database existence
-docker exec mvp-postgres psql -U postgres -l
+docker exec pg-cerbos-postgres psql -U postgres -l
 ```
 
 #### Policy Issues
@@ -261,7 +261,7 @@ If you encounter "HTTP 403: Access denied by policy" errors:
 
 3. **Check OPA logs for syntax errors:**
    ```bash
-   docker logs mvp-opa --tail 10
+   docker logs pg-cerbos-opa --tail 10
    ```
 
 4. **Verify policy registry has working policies:**
