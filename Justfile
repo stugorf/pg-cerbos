@@ -197,6 +197,28 @@ test:
 test-cov:
     python -m pytest tests/ --cov=pg_cerbos --cov-report=html --cov-report=term
 
+# Test Cypher parser specifically
+test-cypher-parser:
+    @echo "🧪 Running Cypher parser tests..."
+    @if docker compose ps policy-registry-backend 2>/dev/null | grep -q "Up"; then \
+        echo "Running tests in Docker container..."; \
+        docker compose exec policy-registry-backend pip install pytest >/dev/null 2>&1 || true; \
+        docker compose exec policy-registry-backend python -m pytest test_cypher_parser.py -v; \
+    elif command -v uv >/dev/null 2>&1; then \
+        echo "Using uv to run tests..."; \
+        cd policy-registry/backend && \
+        uv venv .venv 2>/dev/null || true && \
+        uv pip install -r requirements.txt && \
+        uv run pytest test_cypher_parser.py -v; \
+    elif command -v python3 >/dev/null 2>&1; then \
+        cd policy-registry/backend && python3 -m pytest test_cypher_parser.py -v; \
+    elif command -v python >/dev/null 2>&1; then \
+        cd policy-registry/backend && python -m pytest test_cypher_parser.py -v; \
+    else \
+        echo "❌ uv or Python not found. Please install uv, Python 3, or start Docker containers with 'just up'"; \
+        exit 1; \
+    fi
+
 # Run linting
 lint:
     python -m ruff check src/ tests/

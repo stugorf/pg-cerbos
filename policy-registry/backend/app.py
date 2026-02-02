@@ -642,19 +642,58 @@ def execute_graph_query(
     if query_type not in ["cypher", "gremlin"]:
         raise HTTPException(status_code=400, detail="Query type must be 'cypher' or 'gremlin'")
     
+    # Parse Cypher query if it's a Cypher query
+    cypher_metadata = {}
+    resource_attributes = {}
+    
+    if query_type == "cypher":
+        try:
+            from cypher_parser import parse_cypher_query, extract_resource_attributes
+            
+            # Parse query to extract metadata
+            cypher_metadata = parse_cypher_query(query)
+            
+            # Extract resource attributes from WHERE clauses
+            resource_attributes = extract_resource_attributes(query)
+            
+            # Convert sets to lists for JSON serialization
+            if "node_labels" in cypher_metadata:
+                cypher_metadata["node_labels"] = list(cypher_metadata["node_labels"])
+            if "relationship_types" in cypher_metadata:
+                cypher_metadata["relationship_types"] = list(cypher_metadata["relationship_types"])
+            
+            logger.debug(f"Parsed Cypher query metadata: {cypher_metadata}")
+            logger.debug(f"Extracted resource attributes: {resource_attributes}")
+        except ImportError:
+            logger.warning("cypher_parser module not available, skipping query parsing")
+        except Exception as e:
+            logger.warning(f"Error parsing Cypher query: {e}, continuing with basic authorization")
+    
     # Check authorization with Cerbos
     cerbos_client = get_cerbos_client()
     user_roles = get_user_roles(db, current_user.id)
+    
+    # Build resource attributes for Cerbos
+    cerbos_attributes = {
+        "query_type": query_type,
+        "query": query,
+        **cypher_metadata,
+        **resource_attributes
+    }
+    
+    # Use cypher_query resource kind for Cypher queries, transaction for backward compatibility
+    resource_kind = "cypher_query" if query_type == "cypher" else "transaction"
+    action = "execute" if query_type == "cypher" else "graph_expand"
     
     # Check if user can execute graph queries
     allowed, reason, policy = cerbos_client.check_resource_access(
         user_id=str(current_user.id),
         user_email=current_user.email,
         user_roles=user_roles,
-        resource_kind="transaction",  # Graph queries are for transaction exploration
+        resource_kind=resource_kind,
         resource_id="graph-query",
-        action="graph_expand",
-        attributes={"query_type": query_type}
+        action=action,
+        attributes=cerbos_attributes
     )
     
     if not allowed:
@@ -665,8 +704,8 @@ def execute_graph_query(
         user_id=str(current_user.id),
         user_email=current_user.email,
         user_roles=user_roles,
-        resource_kind="graph",
-        action="graph_expand",
+        resource_kind=resource_kind,
+        action=action,
         allowed=True,
         reason="Graph query authorized",
         query_preview=query[:200],
