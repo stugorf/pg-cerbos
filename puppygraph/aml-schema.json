@@ -1,12 +1,12 @@
 {
   "catalogs": [
     {
-      "field": "aml_postgres",
+      "name": "aml_postgres",
       "type": "postgresql",
       "jdbc": {
         "username": "postgres",
         "password": "postgres",
-        "jdbcUri": "jdbc:postgresql://postgres:5432/demo_data",
+        "jdbcUri": "jdbc:postgresql://postgres14:5432/demo_data",
         "driverClass": "org.postgresql.Driver"
       }
     }
