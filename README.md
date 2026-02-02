@@ -452,11 +452,20 @@ PuppyGraph provides graph query capabilities for the AML PoC. Access the PuppyGr
 
 #### Example openCypher Queries
 
+**Find high-value transactions:**
+```cypher
+MATCH (c:Customer)-[:OWNS]->(acc:Account)-[:SENT_TXN]->(txn:Transaction)
+WHERE txn.amount > 50000
+RETURN c.name, c.risk_rating, txn.amount, txn.timestamp
+ORDER BY txn.amount DESC
+```
+
 **Expand transaction network from a case:**
 ```cypher
 MATCH (c:Case {case_id: 1})-[:FROM_ALERT]->(a:Alert)-[:FLAGS_CUSTOMER]->(cust:Customer)
 MATCH (cust)-[:OWNS]->(acc:Account)-[:SENT_TXN]->(txn:Transaction)-[:TO_ACCOUNT]->(acc2:Account)
-RETURN c, a, cust, acc, txn, acc2
+RETURN c.case_id, a.alert_id, cust.name, txn.txn_id, txn.amount, txn.timestamp
+ORDER BY txn.amount DESC
 ```
 
 **Find all customers connected to high-value transactions:**
@@ -488,6 +497,22 @@ LIMIT 10
 MATCH (c:Case {case_id: 1})-[:HAS_NOTE]->(note:CaseNote)
 RETURN note.created_at, note.author_user_id, note.text
 ORDER BY note.created_at
+```
+
+**Find transaction chains (multi-hop analysis):**
+```cypher
+MATCH path = (c1:Customer)-[:OWNS]->(acc1:Account)-[:SENT_TXN]->(txn1:Transaction)-[:TO_ACCOUNT]->(acc2:Account)-[:SENT_TXN]->(txn2:Transaction)
+WHERE txn1.amount > 30000 AND txn2.amount > 30000
+RETURN c1.name as start_customer, txn1.amount as first_txn, txn2.amount as second_txn
+LIMIT 10
+```
+
+**Find all PEP customers with high-value transactions:**
+```cypher
+MATCH (cust:Customer {pep_flag: true})-[:OWNS]->(acc:Account)-[:SENT_TXN]->(txn:Transaction)
+WHERE txn.amount > 50000
+RETURN cust.name, cust.risk_rating, txn.amount, txn.timestamp
+ORDER BY txn.amount DESC
 ```
 
 #### Example Gremlin Queries
@@ -539,7 +564,21 @@ g.V().hasLabel('Alert').has('alert_id', 1)
 4. **Execute Queries**: Paste and run the examples above
 5. **View Results**: See results in table or graph visualization
 
-For more details, see [AML PoC Quick Start Guide](docs/AML_POC_QUICKSTART.md).
+#### Using Graph Query Tab in Main UI
+
+1. **Access Main UI**: http://localhost:8083/auth.html
+2. **Login**: Use your credentials
+3. **Navigate to Graph Query Tab**: Click "Graph Query" in navigation
+4. **Select Query Language**: Choose openCypher or Gremlin
+5. **Enter Query**: Paste a Cypher or Gremlin query
+6. **Execute**: Click "Execute Graph Query"
+7. **View Results**: Results displayed with execution time
+8. **Authorization**: All queries are authorized via Cerbos before execution
+
+**Note**: The Graph Query tab in the main UI routes queries through the backend API (`/query/graph`), which enforces Cerbos authorization before sending to PuppyGraph. This ensures all graph queries are properly authorized.
+
+For more examples, see [AML Cypher Examples](docs/AML_CYPHER_EXAMPLES.md).  
+For setup details, see [AML PoC Quick Start Guide](docs/AML_POC_QUICKSTART.md).
 
 ## 🔧 Troubleshooting
 

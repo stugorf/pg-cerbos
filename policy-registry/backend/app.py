@@ -30,6 +30,19 @@ except ImportError as e:
     def get_cerbos_client():
         raise RuntimeError("Cerbos client not available")
 
+# AML imports
+try:
+    from aml_models import (
+        GraphExpandRequest, CaseNoteCreate, CaseAssignRequest, SARCreate,
+        CustomerResponse, AccountResponse, TransactionResponse, AlertResponse,
+        CaseResponse, CaseNoteResponse, SARResponse, GraphResponse, GraphNode, GraphEdge
+    )
+    from puppygraph_client import get_puppygraph_client
+    AML_AVAILABLE = True
+except ImportError as e:
+    print(f"WARNING: Could not import AML modules: {e}")
+    AML_AVAILABLE = False
+
 # Set up logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -603,6 +616,85 @@ def delete_policy(policy_id: int, current_user: User = Depends(get_current_user)
 
 # Removed duplicate /cerbos/policies/validate endpoint - using the one at line ~1447
 # Removed duplicate /cerbos/health endpoint - can be added back if needed
+
+# Graph Query endpoint: Execute Cypher/Gremlin queries via PuppyGraph with Cerbos authorization
+@API.post("/query/graph")
+def execute_graph_query(
+    query_data: dict,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Execute a graph query (Cypher or Gremlin) via PuppyGraph with Cerbos authorization."""
+    # Check if PuppyGraph is available
+    try:
+        from puppygraph_client import get_puppygraph_client
+    except ImportError:
+        raise HTTPException(status_code=503, detail="PuppyGraph client not available. Please ensure PuppyGraph is configured.")
+    
+    query = query_data.get("query", "").strip()
+    query_type = query_data.get("type", "cypher").lower()  # "cypher" or "gremlin"
+    
+    if not query:
+        raise HTTPException(status_code=400, detail="Query is required")
+    
+    if query_type not in ["cypher", "gremlin"]:
+        raise HTTPException(status_code=400, detail="Query type must be 'cypher' or 'gremlin'")
+    
+    # Check authorization with Cerbos
+    cerbos_client = get_cerbos_client()
+    user_roles = get_user_roles(current_user, db)
+    
+    # Check if user can execute graph queries
+    allowed, reason = cerbos_client.check_resource_access(
+        user_id=str(current_user.id),
+        user_email=current_user.email,
+        user_roles=user_roles,
+        resource_kind="transaction",  # Graph queries are for transaction exploration
+        resource_id="graph-query",
+        action="graph_expand",
+        attributes={"query_type": query_type}
+    )
+    
+    if not allowed:
+        raise HTTPException(status_code=403, detail=reason or "Not authorized to execute graph queries")
+    
+    # Log authorization decision
+    log_authorization_decision(
+        user_id=str(current_user.id),
+        user_email=current_user.email,
+        user_roles=user_roles,
+        resource_kind="graph",
+        action="graph_expand",
+        allowed=True,
+        reason="Graph query authorized",
+        query_preview=query[:200]
+    )
+    
+    # Execute graph query via PuppyGraph
+    try:
+        puppygraph = get_puppygraph_client()
+        import time
+        start_time = time.time()
+        
+        if query_type == "cypher":
+            result = puppygraph.execute_cypher(query)
+        else:  # gremlin
+            result = puppygraph.execute_gremlin(query)
+        
+        execution_time = (time.time() - start_time) * 1000
+        
+        # Parse and return result
+        # PuppyGraph response format may vary, return raw result for now
+        return {
+            "success": True,
+            "data": result,
+            "query_type": query_type,
+            "execution_time_ms": execution_time,
+            "query": query
+        }
+    except Exception as e:
+        logger.error(f"Graph query failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Graph query failed: {str(e)}")
 
 # SQL Query endpoint: Execute queries with Cerbos authorization
 @API.post("/query")
@@ -1646,6 +1738,755 @@ def get_backend_authz_logs(lines: int = 100):
         "total": len(logs)
     }
 
+
+# =============================================================================
+# AML (Anti-Money Laundering) API Endpoints
+# =============================================================================
+
+if AML_AVAILABLE:
+    from trino_client import get_trino_client
+    
+    @API.get("/aml/alerts", response_model=List[AlertResponse])
+    def list_alerts(
+        status: Optional[str] = None,
+        severity: Optional[str] = None,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+    ):
+        """List AML alerts with optional filtering."""
+        # Check authorization
+        cerbos_client = get_cerbos_client()
+        allowed, reason = cerbos_client.check_resource_access(
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            user_roles=get_user_roles(current_user, db),
+            resource_kind="alert",
+            resource_id="*",
+            action="view"
+        )
+        if not allowed:
+            raise HTTPException(status_code=403, detail=reason or "Not authorized to view alerts")
+        
+        # Build query
+        query = "SELECT * FROM postgres.demo_data.aml.alert WHERE 1=1"
+        params = []
+        if status:
+            query += " AND status = %s"
+            params.append(status)
+        if severity:
+            query += " AND severity = %s"
+            params.append(severity)
+        query += " ORDER BY created_at DESC LIMIT 100"
+        
+        # Execute via Trino
+        trino = get_trino_client()
+        with trino.execute_query(str(current_user.id), "postgres", "demo_data", query) as (success, data, columns, error):
+            if not success:
+                raise HTTPException(status_code=500, detail=error or "Failed to fetch alerts")
+            
+            # Convert to response models
+            alerts = []
+            for row in data:
+                alerts.append(AlertResponse(
+                    alert_id=row[0],
+                    alert_type=row[1],
+                    created_at=row[2],
+                    severity=row[3],
+                    status=row[4],
+                    primary_customer_id=row[5],
+                    primary_account_id=row[6]
+                ))
+            return alerts
+    
+    @API.get("/aml/alerts/{alert_id}", response_model=AlertResponse)
+    def get_alert(
+        alert_id: int,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+    ):
+        """Get a specific alert by ID."""
+        # Check authorization
+        cerbos_client = get_cerbos_client()
+        allowed, reason = cerbos_client.check_resource_access(
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            user_roles=get_user_roles(current_user, db),
+            resource_kind="alert",
+            resource_id=str(alert_id),
+            action="view"
+        )
+        if not allowed:
+            raise HTTPException(status_code=403, detail=reason or "Not authorized to view this alert")
+        
+        # Fetch alert
+        trino = get_trino_client()
+        query = f"SELECT * FROM postgres.demo_data.aml.alert WHERE alert_id = {alert_id}"
+        with trino.execute_query(str(current_user.id), "postgres", "demo_data", query) as (success, data, columns, error):
+            if not success or not data:
+                raise HTTPException(status_code=404, detail="Alert not found")
+            
+            row = data[0]
+            return AlertResponse(
+                alert_id=row[0],
+                alert_type=row[1],
+                created_at=row[2],
+                severity=row[3],
+                status=row[4],
+                primary_customer_id=row[5],
+                primary_account_id=row[6]
+            )
+    
+    @API.post("/aml/alerts/{alert_id}/escalate", response_model=CaseResponse)
+    def escalate_alert(
+        alert_id: int,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+    ):
+        """Escalate an alert to create a case."""
+        # Check authorization
+        cerbos_client = get_cerbos_client()
+        allowed, reason = cerbos_client.check_resource_access(
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            user_roles=get_user_roles(current_user, db),
+            resource_kind="alert",
+            resource_id=str(alert_id),
+            action="escalate"
+        )
+        if not allowed:
+            raise HTTPException(status_code=403, detail=reason or "Not authorized to escalate this alert")
+        
+        # Get alert first
+        trino = get_trino_client()
+        query = f"SELECT * FROM postgres.demo_data.aml.alert WHERE alert_id = {alert_id}"
+        with trino.execute_query(str(current_user.id), "postgres", "demo_data", query) as (success, data, columns, error):
+            if not success or not data:
+                raise HTTPException(status_code=404, detail="Alert not found")
+        
+        # Create case
+        insert_query = f"""
+            INSERT INTO postgres.demo_data.aml.case 
+            (status, priority, owner_user_id, team, source_alert_id, created_at, updated_at)
+            VALUES ('open', 'medium', '{current_user.id}', NULL, {alert_id}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            RETURNING case_id, status, priority, created_at, updated_at, owner_user_id, team, source_alert_id
+        """
+        with trino.execute_query(str(current_user.id), "postgres", "demo_data", insert_query) as (success, data, columns, error):
+            if not success or not data:
+                raise HTTPException(status_code=500, detail=error or "Failed to create case")
+            
+            row = data[0]
+            return CaseResponse(
+                case_id=row[0],
+                status=row[1],
+                priority=row[2],
+                created_at=row[3],
+                updated_at=row[4],
+                owner_user_id=row[5],
+                team=row[6],
+                source_alert_id=row[7]
+            )
+    
+    @API.get("/aml/cases", response_model=List[CaseResponse])
+    def list_cases(
+        status: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+    ):
+        """List AML cases with optional filtering."""
+        # Check authorization
+        cerbos_client = get_cerbos_client()
+        allowed, reason = cerbos_client.check_resource_access(
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            user_roles=get_user_roles(current_user, db),
+            resource_kind="case",
+            resource_id="*",
+            action="view"
+        )
+        if not allowed:
+            raise HTTPException(status_code=403, detail=reason or "Not authorized to view cases")
+        
+        # Build query
+        query = "SELECT * FROM postgres.demo_data.aml.case WHERE 1=1"
+        if status:
+            query += f" AND status = '{status}'"
+        if owner_user_id:
+            query += f" AND owner_user_id = '{owner_user_id}'"
+        query += " ORDER BY created_at DESC LIMIT 100"
+        
+        # Execute via Trino
+        trino = get_trino_client()
+        with trino.execute_query(str(current_user.id), "postgres", "demo_data", query) as (success, data, columns, error):
+            if not success:
+                raise HTTPException(status_code=500, detail=error or "Failed to fetch cases")
+            
+            cases = []
+            for row in data:
+                cases.append(CaseResponse(
+                    case_id=row[0],
+                    status=row[1],
+                    priority=row[2],
+                    created_at=row[3],
+                    updated_at=row[4],
+                    owner_user_id=row[5],
+                    team=row[6],
+                    source_alert_id=row[7]
+                ))
+            return cases
+    
+    @API.get("/aml/cases/{case_id}", response_model=CaseResponse)
+    def get_case(
+        case_id: int,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+    ):
+        """Get a specific case by ID."""
+        # Check authorization
+        cerbos_client = get_cerbos_client()
+        # First get case to check ownership
+        trino = get_trino_client()
+        query = f"SELECT * FROM postgres.demo_data.aml.case WHERE case_id = {case_id}"
+        with trino.execute_query(str(current_user.id), "postgres", "demo_data", query) as (success, data, columns, error):
+            if not success or not data:
+                raise HTTPException(status_code=404, detail="Case not found")
+            
+            row = data[0]
+            case_owner = row[5]  # owner_user_id
+            
+            # Check authorization with case attributes
+            allowed, reason = cerbos_client.check_resource_access(
+                user_id=str(current_user.id),
+                user_email=current_user.email,
+                user_roles=get_user_roles(current_user, db),
+                resource_kind="case",
+                resource_id=str(case_id),
+                action="view",
+                attributes={"owner_user_id": case_owner, "status": row[1], "team": row[6] or ""}
+            )
+            if not allowed:
+                raise HTTPException(status_code=403, detail=reason or "Not authorized to view this case")
+            
+            return CaseResponse(
+                case_id=row[0],
+                status=row[1],
+                priority=row[2],
+                created_at=row[3],
+                updated_at=row[4],
+                owner_user_id=row[5],
+                team=row[6],
+                source_alert_id=row[7]
+            )
+    
+    @API.post("/aml/cases/{case_id}/notes", response_model=CaseNoteResponse)
+    def add_case_note(
+        case_id: int,
+        note_data: CaseNoteCreate,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+    ):
+        """Add a note to a case."""
+        # Check authorization
+        cerbos_client = get_cerbos_client()
+        # Get case first to check ownership
+        trino = get_trino_client()
+        query = f"SELECT * FROM postgres.demo_data.aml.case WHERE case_id = {case_id}"
+        with trino.execute_query(str(current_user.id), "postgres", "demo_data", query) as (success, data, columns, error):
+            if not success or not data:
+                raise HTTPException(status_code=404, detail="Case not found")
+            
+            row = data[0]
+            case_owner = row[5]
+            
+            # Check authorization
+            allowed, reason = cerbos_client.check_resource_access(
+                user_id=str(current_user.id),
+                user_email=current_user.email,
+                user_roles=get_user_roles(current_user, db),
+                resource_kind="case",
+                resource_id=str(case_id),
+                action="add_note",
+                attributes={"owner_user_id": case_owner, "status": row[1]}
+            )
+            if not allowed:
+                raise HTTPException(status_code=403, detail=reason or "Not authorized to add notes to this case")
+        
+        # Insert note
+        text_escaped = note_data.text.replace("'", "''")
+        insert_query = f"""
+            INSERT INTO postgres.demo_data.aml.case_note 
+            (case_id, author_user_id, text, created_at)
+            VALUES ({case_id}, '{current_user.id}', '{text_escaped}', CURRENT_TIMESTAMP)
+            RETURNING note_id, case_id, author_user_id, created_at, text
+        """
+        with trino.execute_query(str(current_user.id), "postgres", "demo_data", insert_query) as (success, data, columns, error):
+            if not success or not data:
+                raise HTTPException(status_code=500, detail=error or "Failed to create note")
+            
+            row = data[0]
+            return CaseNoteResponse(
+                note_id=row[0],
+                case_id=row[1],
+                author_user_id=row[2],
+                created_at=row[3],
+                text=row[4]
+            )
+    
+    @API.post("/aml/cases/{case_id}/graph-expand", response_model=GraphResponse)
+    def expand_case_graph(
+        case_id: int,
+        expand_request: GraphExpandRequest,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+    ):
+        """Expand transaction network from a case using PuppyGraph."""
+        # Check authorization
+        cerbos_client = get_cerbos_client()
+        # Get case first
+        trino = get_trino_client()
+        query = f"SELECT * FROM postgres.demo_data.aml.case WHERE case_id = {case_id}"
+        with trino.execute_query(str(current_user.id), "postgres", "demo_data", query) as (success, data, columns, error):
+            if not success or not data:
+                raise HTTPException(status_code=404, detail="Case not found")
+            
+            row = data[0]
+            case_owner = row[5]
+            
+            # Check authorization for graph expansion
+            allowed, reason = cerbos_client.check_resource_access(
+                user_id=str(current_user.id),
+                user_email=current_user.email,
+                user_roles=get_user_roles(current_user, db),
+                resource_kind="transaction",
+                resource_id=f"case-{case_id}",
+                action="graph_expand",
+                attributes={"case_id": str(case_id), "owner_user_id": case_owner}
+            )
+            if not allowed:
+                raise HTTPException(status_code=403, detail=reason or "Not authorized to expand graph for this case")
+        
+        # Execute graph query via PuppyGraph
+        try:
+            puppygraph = get_puppygraph_client()
+            
+            # Build openCypher query to expand transaction network
+            cypher_query = f"""
+            MATCH (c:Case {{case_id: {case_id}}})-[:FROM_ALERT]->(a:Alert)-[:FLAGS_CUSTOMER]->(cust:Customer)
+            MATCH path = (cust)-[:OWNS]->(acc:Account)-[:SENT_TXN*1..{expand_request.depth}]->(txn:Transaction)
+            RETURN c, a, cust, acc, txn
+            LIMIT 100
+            """
+            
+            import time
+            start_time = time.time()
+            result = puppygraph.execute_cypher(cypher_query)
+            execution_time = (time.time() - start_time) * 1000
+            
+            # Parse PuppyGraph response and convert to GraphResponse
+            nodes = []
+            edges = []
+            node_ids = set()  # Track unique nodes
+            
+            # PuppyGraph typically returns results in a specific format
+            # Adjust parsing based on actual API response structure
+            if isinstance(result, dict):
+                # Handle different possible response formats
+                data = result.get("data", result.get("results", []))
+                
+                for row in data:
+                    # Each row contains matched entities
+                    # Extract nodes and relationships
+                    if isinstance(row, (list, tuple)):
+                        for entity in row:
+                            if isinstance(entity, dict):
+                                # Extract node information
+                                label = entity.get("label", entity.get("_label", "Unknown"))
+                                node_id = entity.get("id", entity.get("_id"))
+                                properties = {k: v for k, v in entity.items() 
+                                            if k not in ["label", "_label", "id", "_id"]}
+                                
+                                if node_id and (label, node_id) not in node_ids:
+                                    nodes.append(GraphNode(
+                                        label=label,
+                                        id=node_id,
+                                        properties=properties
+                                    ))
+                                    node_ids.add((label, node_id))
+                    elif isinstance(row, dict):
+                        # Single entity or path result
+                        for key, value in row.items():
+                            if isinstance(value, dict):
+                                label = value.get("label", value.get("_label", key))
+                                node_id = value.get("id", value.get("_id"))
+                                properties = {k: v for k, v in value.items() 
+                                            if k not in ["label", "_label", "id", "_id"]}
+                                
+                                if node_id and (label, node_id) not in node_ids:
+                                    nodes.append(GraphNode(
+                                        label=label,
+                                        id=node_id,
+                                        properties=properties
+                                    ))
+                                    node_ids.add((label, node_id))
+            
+            # If no nodes found, return empty graph (query may have returned no results)
+            # This is valid - the case may not have associated transactions yet
+            
+            return GraphResponse(
+                nodes=nodes,
+                edges=edges,  # Edges can be inferred from relationships or parsed separately
+                query=cypher_query,
+                execution_time_ms=execution_time
+            )
+        except Exception as e:
+            logger.error(f"PuppyGraph query failed: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Graph expansion failed: {str(e)}")
+    
+    @API.post("/aml/cases/{case_id}/assign", response_model=CaseResponse)
+    def assign_case(
+        case_id: int,
+        assign_data: CaseAssignRequest,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+    ):
+        """Assign a case to an analyst (manager only)."""
+        # Check authorization - only managers can assign
+        cerbos_client = get_cerbos_client()
+        user_roles = get_user_roles(current_user, db)
+        if "aml_manager" not in user_roles:
+            raise HTTPException(status_code=403, detail="Only managers can assign cases")
+        
+        allowed, reason = cerbos_client.check_resource_access(
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            user_roles=user_roles,
+            resource_kind="case",
+            resource_id=str(case_id),
+            action="assign"
+        )
+        if not allowed:
+            raise HTTPException(status_code=403, detail=reason or "Not authorized to assign this case")
+        
+        # Update case
+        trino = get_trino_client()
+        team_val = f"'{assign_data.team}'" if assign_data.team else "NULL"
+        update_query = f"""
+            UPDATE postgres.demo_data.aml.case 
+            SET owner_user_id = '{assign_data.owner_user_id}', 
+                team = {team_val},
+                updated_at = CURRENT_TIMESTAMP
+            WHERE case_id = {case_id}
+            RETURNING case_id, status, priority, created_at, updated_at, owner_user_id, team, source_alert_id
+        """
+        with trino.execute_query(str(current_user.id), "postgres", "demo_data", update_query) as (success, data, columns, error):
+            if not success or not data:
+                raise HTTPException(status_code=500, detail=error or "Failed to assign case")
+            
+            row = data[0]
+            return CaseResponse(
+                case_id=row[0],
+                status=row[1],
+                priority=row[2],
+                created_at=row[3],
+                updated_at=row[4],
+                owner_user_id=row[5],
+                team=row[6],
+                source_alert_id=row[7]
+            )
+    
+    @API.post("/aml/cases/{case_id}/close", response_model=CaseResponse)
+    def close_case(
+        case_id: int,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+    ):
+        """Close a case (analyst if assigned, manager always)."""
+        # Get case first
+        trino = get_trino_client()
+        query = f"SELECT * FROM postgres.demo_data.aml.case WHERE case_id = {case_id}"
+        with trino.execute_query(str(current_user.id), "postgres", "demo_data", query) as (success, data, columns, error):
+            if not success or not data:
+                raise HTTPException(status_code=404, detail="Case not found")
+            
+            row = data[0]
+            case_owner = row[5]
+            
+            # Check authorization
+            cerbos_client = get_cerbos_client()
+            allowed, reason = cerbos_client.check_resource_access(
+                user_id=str(current_user.id),
+                user_email=current_user.email,
+                user_roles=get_user_roles(current_user, db),
+                resource_kind="case",
+                resource_id=str(case_id),
+                action="close",
+                attributes={"owner_user_id": case_owner, "status": row[1]}
+            )
+            if not allowed:
+                raise HTTPException(status_code=403, detail=reason or "Not authorized to close this case")
+        
+        # Update case status
+        update_query = f"""
+            UPDATE postgres.demo_data.aml.case 
+            SET status = 'closed', updated_at = CURRENT_TIMESTAMP
+            WHERE case_id = {case_id}
+            RETURNING case_id, status, priority, created_at, updated_at, owner_user_id, team, source_alert_id
+        """
+        with trino.execute_query(str(current_user.id), "postgres", "demo_data", update_query) as (success, data, columns, error):
+            if not success or not data:
+                raise HTTPException(status_code=500, detail=error or "Failed to close case")
+            
+            row = data[0]
+            return CaseResponse(
+                case_id=row[0],
+                status=row[1],
+                priority=row[2],
+                created_at=row[3],
+                updated_at=row[4],
+                owner_user_id=row[5],
+                team=row[6],
+                source_alert_id=row[7]
+            )
+    
+    @API.get("/aml/cases/{case_id}/notes", response_model=List[CaseNoteResponse])
+    def list_case_notes(
+        case_id: int,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+    ):
+        """List all notes for a case."""
+        # Check case exists and user can view it
+        trino = get_trino_client()
+        query = f"SELECT * FROM postgres.demo_data.aml.case WHERE case_id = {case_id}"
+        with trino.execute_query(str(current_user.id), "postgres", "demo_data", query) as (success, data, columns, error):
+            if not success or not data:
+                raise HTTPException(status_code=404, detail="Case not found")
+            
+            row = data[0]
+            case_owner = row[5]
+            
+            # Check authorization
+            cerbos_client = get_cerbos_client()
+            allowed, reason = cerbos_client.check_resource_access(
+                user_id=str(current_user.id),
+                user_email=current_user.email,
+                user_roles=get_user_roles(current_user, db),
+                resource_kind="case",
+                resource_id=str(case_id),
+                action="view",
+                attributes={"owner_user_id": case_owner, "status": row[1]}
+            )
+            if not allowed:
+                raise HTTPException(status_code=403, detail=reason or "Not authorized to view this case")
+        
+        # Get notes
+        notes_query = f"""
+            SELECT note_id, case_id, author_user_id, created_at, text
+            FROM postgres.demo_data.aml.case_note
+            WHERE case_id = {case_id}
+            ORDER BY created_at ASC
+        """
+        with trino.execute_query(str(current_user.id), "postgres", "demo_data", notes_query) as (success, data, columns, error):
+            if not success:
+                raise HTTPException(status_code=500, detail=error or "Failed to fetch notes")
+            
+            notes = []
+            for row in data:
+                notes.append(CaseNoteResponse(
+                    note_id=row[0],
+                    case_id=row[1],
+                    author_user_id=row[2],
+                    created_at=row[3],
+                    text=row[4]
+                ))
+            return notes
+    
+    @API.get("/aml/sars", response_model=List[SARResponse])
+    def list_sars(
+        status: Optional[str] = None,
+        case_id: Optional[int] = None,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+    ):
+        """List SARs with optional filtering."""
+        # Check authorization
+        cerbos_client = get_cerbos_client()
+        allowed, reason = cerbos_client.check_resource_access(
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            user_roles=get_user_roles(current_user, db),
+            resource_kind="sar",
+            resource_id="*",
+            action="view"
+        )
+        if not allowed:
+            raise HTTPException(status_code=403, detail=reason or "Not authorized to view SARs")
+        
+        # Build query
+        query = "SELECT * FROM postgres.demo_data.aml.sar WHERE 1=1"
+        if status:
+            query += f" AND status = '{status}'"
+        if case_id:
+            query += f" AND case_id = {case_id}"
+        query += " ORDER BY created_at DESC LIMIT 100"
+        
+        # Execute via Trino
+        trino = get_trino_client()
+        with trino.execute_query(str(current_user.id), "postgres", "demo_data", query) as (success, data, columns, error):
+            if not success:
+                raise HTTPException(status_code=500, detail=error or "Failed to fetch SARs")
+            
+            sars = []
+            for row in data:
+                sars.append(SARResponse(
+                    sar_id=row[0],
+                    case_id=row[1],
+                    status=row[2],
+                    created_at=row[3],
+                    submitted_at=row[4] if len(row) > 4 else None
+                ))
+            return sars
+    
+    @API.get("/aml/sars/{sar_id}", response_model=SARResponse)
+    def get_sar(
+        sar_id: int,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+    ):
+        """Get a specific SAR by ID."""
+        # Check authorization
+        cerbos_client = get_cerbos_client()
+        allowed, reason = cerbos_client.check_resource_access(
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            user_roles=get_user_roles(current_user, db),
+            resource_kind="sar",
+            resource_id=str(sar_id),
+            action="view"
+        )
+        if not allowed:
+            raise HTTPException(status_code=403, detail=reason or "Not authorized to view this SAR")
+        
+        # Fetch SAR
+        trino = get_trino_client()
+        query = f"SELECT * FROM postgres.demo_data.aml.sar WHERE sar_id = {sar_id}"
+        with trino.execute_query(str(current_user.id), "postgres", "demo_data", query) as (success, data, columns, error):
+            if not success or not data:
+                raise HTTPException(status_code=404, detail="SAR not found")
+            
+            row = data[0]
+            return SARResponse(
+                sar_id=row[0],
+                case_id=row[1],
+                status=row[2],
+                created_at=row[3],
+                submitted_at=row[4] if len(row) > 4 else None
+            )
+    
+    @API.post("/aml/sars", response_model=SARResponse)
+    def create_sar(
+        sar_data: SARCreate,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+    ):
+        """Create a SAR draft (manager only)."""
+        # Check authorization - only managers can create SARs
+        cerbos_client = get_cerbos_client()
+        user_roles = get_user_roles(current_user, db)
+        if "aml_manager" not in user_roles:
+            raise HTTPException(status_code=403, detail="Only managers can create SARs")
+        
+        allowed, reason = cerbos_client.check_resource_access(
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            user_roles=user_roles,
+            resource_kind="sar",
+            resource_id="new",
+            action="draft"
+        )
+        if not allowed:
+            raise HTTPException(status_code=403, detail=reason or "Not authorized to create SARs")
+        
+        # Verify case exists
+        trino = get_trino_client()
+        case_query = f"SELECT * FROM postgres.demo_data.aml.case WHERE case_id = {sar_data.case_id}"
+        with trino.execute_query(str(current_user.id), "postgres", "demo_data", case_query) as (success, data, columns, error):
+            if not success or not data:
+                raise HTTPException(status_code=404, detail="Case not found")
+        
+        # Create SAR
+        insert_query = f"""
+            INSERT INTO postgres.demo_data.aml.sar 
+            (case_id, status, created_at)
+            VALUES ({sar_data.case_id}, 'draft', CURRENT_TIMESTAMP)
+            RETURNING sar_id, case_id, status, created_at, submitted_at
+        """
+        with trino.execute_query(str(current_user.id), "postgres", "demo_data", insert_query) as (success, data, columns, error):
+            if not success or not data:
+                raise HTTPException(status_code=500, detail=error or "Failed to create SAR")
+            
+            row = data[0]
+            return SARResponse(
+                sar_id=row[0],
+                case_id=row[1],
+                status=row[2],
+                created_at=row[3],
+                submitted_at=row[4] if len(row) > 4 else None
+            )
+    
+    @API.post("/aml/sars/{sar_id}/submit", response_model=SARResponse)
+    def submit_sar(
+        sar_id: int,
+        current_user: User = Depends(get_current_user),
+        db: Session = Depends(get_db)
+    ):
+        """Submit a SAR (manager only)."""
+        # Check authorization - only managers can submit SARs
+        cerbos_client = get_cerbos_client()
+        user_roles = get_user_roles(current_user, db)
+        if "aml_manager" not in user_roles:
+            raise HTTPException(status_code=403, detail="Only managers can submit SARs")
+        
+        allowed, reason = cerbos_client.check_resource_access(
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            user_roles=user_roles,
+            resource_kind="sar",
+            resource_id=str(sar_id),
+            action="submit"
+        )
+        if not allowed:
+            raise HTTPException(status_code=403, detail=reason or "Not authorized to submit this SAR")
+        
+        # Get SAR first
+        trino = get_trino_client()
+        query = f"SELECT * FROM postgres.demo_data.aml.sar WHERE sar_id = {sar_id}"
+        with trino.execute_query(str(current_user.id), "postgres", "demo_data", query) as (success, data, columns, error):
+            if not success or not data:
+                raise HTTPException(status_code=404, detail="SAR not found")
+            
+            if data[0][2] == "submitted":  # status column
+                raise HTTPException(status_code=400, detail="SAR is already submitted")
+        
+        # Update SAR status
+        update_query = f"""
+            UPDATE postgres.demo_data.aml.sar 
+            SET status = 'submitted', submitted_at = CURRENT_TIMESTAMP
+            WHERE sar_id = {sar_id}
+            RETURNING sar_id, case_id, status, created_at, submitted_at
+        """
+        with trino.execute_query(str(current_user.id), "postgres", "demo_data", update_query) as (success, data, columns, error):
+            if not success or not data:
+                raise HTTPException(status_code=500, detail=error or "Failed to submit SAR")
+            
+            row = data[0]
+            return SARResponse(
+                sar_id=row[0],
+                case_id=row[1],
+                status=row[2],
+                created_at=row[3],
+                submitted_at=row[4] if len(row) > 4 else None
+            )
 
 # =============================================================================
 # OPA bundle endpoint (DEPRECATED - OPA has been removed, kept for legacy compatibility)

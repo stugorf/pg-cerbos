@@ -1,300 +1,581 @@
 {
-  "catalog": {
-    "type": "jdbc",
-    "jdbc": {
-      "url": "jdbc:postgresql://postgres:5432/demo_data",
-      "user": "postgres",
-      "password": "postgres",
-      "driver": "org.postgresql.Driver"
-    }
-  },
-  "vertices": [
+  "catalogs": [
     {
-      "label": "Customer",
-      "table": {
-        "name": "aml.customer",
-        "schema": "aml"
-      },
-      "attributes": {
-        "customer_id": "customer_id",
-        "name": "name",
-        "risk_rating": "risk_rating",
-        "pep_flag": "pep_flag",
-        "created_at": "created_at",
-        "updated_at": "updated_at"
-      },
-      "primaryKey": {
-        "column": "customer_id"
-      }
-    },
-    {
-      "label": "Account",
-      "table": {
-        "name": "aml.account",
-        "schema": "aml"
-      },
-      "attributes": {
-        "account_id": "account_id",
-        "customer_id": "customer_id",
-        "type": "type",
-        "status": "status",
-        "created_at": "created_at",
-        "updated_at": "updated_at"
-      },
-      "primaryKey": {
-        "column": "account_id"
-      }
-    },
-    {
-      "label": "Transaction",
-      "table": {
-        "name": "aml.transaction",
-        "schema": "aml"
-      },
-      "attributes": {
-        "txn_id": "txn_id",
-        "from_account_id": "from_account_id",
-        "to_account_id": "to_account_id",
-        "amount": "amount",
-        "timestamp": "timestamp",
-        "channel": "channel",
-        "country": "country",
-        "created_at": "created_at"
-      },
-      "primaryKey": {
-        "column": "txn_id"
-      }
-    },
-    {
-      "label": "Alert",
-      "table": {
-        "name": "aml.alert",
-        "schema": "aml"
-      },
-      "attributes": {
-        "alert_id": "alert_id",
-        "alert_type": "alert_type",
-        "created_at": "created_at",
-        "severity": "severity",
-        "status": "status",
-        "primary_customer_id": "primary_customer_id",
-        "primary_account_id": "primary_account_id"
-      },
-      "primaryKey": {
-        "column": "alert_id"
-      }
-    },
-    {
-      "label": "Case",
-      "table": {
-        "name": "aml.case",
-        "schema": "aml"
-      },
-      "attributes": {
-        "case_id": "case_id",
-        "status": "status",
-        "priority": "priority",
-        "created_at": "created_at",
-        "updated_at": "updated_at",
-        "owner_user_id": "owner_user_id",
-        "team": "team",
-        "source_alert_id": "source_alert_id"
-      },
-      "primaryKey": {
-        "column": "case_id"
-      }
-    },
-    {
-      "label": "CaseNote",
-      "table": {
-        "name": "aml.case_note",
-        "schema": "aml"
-      },
-      "attributes": {
-        "note_id": "note_id",
-        "case_id": "case_id",
-        "author_user_id": "author_user_id",
-        "created_at": "created_at",
-        "text": "text"
-      },
-      "primaryKey": {
-        "column": "note_id"
-      }
-    },
-    {
-      "label": "SAR",
-      "table": {
-        "name": "aml.sar",
-        "schema": "aml"
-      },
-      "attributes": {
-        "sar_id": "sar_id",
-        "case_id": "case_id",
-        "status": "status",
-        "created_at": "created_at",
-        "submitted_at": "submitted_at"
-      },
-      "primaryKey": {
-        "column": "sar_id"
+      "name": "aml_postgres",
+      "type": "postgresql",
+      "jdbc": {
+        "username": "postgres",
+        "password": "postgres",
+        "jdbcUri": "jdbc:postgresql://postgres:5432/demo_data",
+        "driverClass": "org.postgresql.Driver"
       }
     }
   ],
-  "edges": [
-    {
-      "label": "OWNS",
-      "from": {
-        "table": {
-          "name": "aml.customer",
-          "schema": "aml"
-        },
-        "column": "customer_id"
+  "graph": {
+    "vertices": [
+      {
+        "label": "Customer",
+        "oneToOne": {
+          "tableSource": {
+            "catalog": "aml_postgres",
+            "schema": "aml",
+            "table": "customer"
+          },
+          "id": {
+            "fields": [
+              {
+                "type": "Int",
+                "field": "customer_id",
+                "alias": "customer_id"
+              }
+            ]
+          },
+          "attributes": [
+            {
+              "type": "String",
+              "field": "name",
+              "alias": "name"
+            },
+            {
+              "type": "String",
+              "field": "risk_rating",
+              "alias": "risk_rating"
+            },
+            {
+              "type": "Boolean",
+              "field": "pep_flag",
+              "alias": "pep_flag"
+            },
+            {
+              "type": "DATETIME",
+              "field": "created_at",
+              "alias": "created_at"
+            },
+            {
+              "type": "DATETIME",
+              "field": "updated_at",
+              "alias": "updated_at"
+            }
+          ]
+        }
       },
-      "to": {
-        "table": {
-          "name": "aml.account",
-          "schema": "aml"
-        },
-        "column": "customer_id"
+      {
+        "label": "Account",
+        "oneToOne": {
+          "tableSource": {
+            "catalog": "aml_postgres",
+            "schema": "aml",
+            "table": "account"
+          },
+          "id": {
+            "fields": [
+              {
+                "type": "Int",
+                "field": "account_id",
+                "alias": "account_id"
+              }
+            ]
+          },
+          "attributes": [
+            {
+              "type": "Int",
+              "field": "customer_id",
+              "alias": "customer_id"
+            },
+            {
+              "type": "String",
+              "field": "type",
+              "alias": "type"
+            },
+            {
+              "type": "String",
+              "field": "status",
+              "alias": "status"
+            },
+            {
+              "type": "DATETIME",
+              "field": "created_at",
+              "alias": "created_at"
+            },
+            {
+              "type": "DATETIME",
+              "field": "updated_at",
+              "alias": "updated_at"
+            }
+          ]
+        }
+      },
+      {
+        "label": "Transaction",
+        "oneToOne": {
+          "tableSource": {
+            "catalog": "aml_postgres",
+            "schema": "aml",
+            "table": "transaction"
+          },
+          "id": {
+            "fields": [
+              {
+                "type": "Int",
+                "field": "txn_id",
+                "alias": "txn_id"
+              }
+            ]
+          },
+          "attributes": [
+            {
+              "type": "Int",
+              "field": "from_account_id",
+              "alias": "from_account_id"
+            },
+            {
+              "type": "Int",
+              "field": "to_account_id",
+              "alias": "to_account_id"
+            },
+            {
+              "type": "DECIMAL(15,2)",
+              "field": "amount",
+              "alias": "amount"
+            },
+            {
+              "type": "DATETIME",
+              "field": "timestamp",
+              "alias": "timestamp"
+            },
+            {
+              "type": "String",
+              "field": "channel",
+              "alias": "channel"
+            },
+            {
+              "type": "String",
+              "field": "country",
+              "alias": "country"
+            },
+            {
+              "type": "DATETIME",
+              "field": "created_at",
+              "alias": "created_at"
+            }
+          ]
+        }
+      },
+      {
+        "label": "Alert",
+        "oneToOne": {
+          "tableSource": {
+            "catalog": "aml_postgres",
+            "schema": "aml",
+            "table": "alert"
+          },
+          "id": {
+            "fields": [
+              {
+                "type": "Int",
+                "field": "alert_id",
+                "alias": "alert_id"
+              }
+            ]
+          },
+          "attributes": [
+            {
+              "type": "String",
+              "field": "alert_type",
+              "alias": "alert_type"
+            },
+            {
+              "type": "DATETIME",
+              "field": "created_at",
+              "alias": "created_at"
+            },
+            {
+              "type": "String",
+              "field": "severity",
+              "alias": "severity"
+            },
+            {
+              "type": "String",
+              "field": "status",
+              "alias": "status"
+            },
+            {
+              "type": "Int",
+              "field": "primary_customer_id",
+              "alias": "primary_customer_id"
+            },
+            {
+              "type": "Int",
+              "field": "primary_account_id",
+              "alias": "primary_account_id"
+            }
+          ]
+        }
+      },
+      {
+        "label": "Case",
+        "oneToOne": {
+          "tableSource": {
+            "catalog": "aml_postgres",
+            "schema": "aml",
+            "table": "case"
+          },
+          "id": {
+            "fields": [
+              {
+                "type": "Int",
+                "field": "case_id",
+                "alias": "case_id"
+              }
+            ]
+          },
+          "attributes": [
+            {
+              "type": "String",
+              "field": "status",
+              "alias": "status"
+            },
+            {
+              "type": "String",
+              "field": "priority",
+              "alias": "priority"
+            },
+            {
+              "type": "DATETIME",
+              "field": "created_at",
+              "alias": "created_at"
+            },
+            {
+              "type": "DATETIME",
+              "field": "updated_at",
+              "alias": "updated_at"
+            },
+            {
+              "type": "Int",
+              "field": "owner_user_id",
+              "alias": "owner_user_id"
+            },
+            {
+              "type": "String",
+              "field": "team",
+              "alias": "team"
+            },
+            {
+              "type": "Int",
+              "field": "source_alert_id",
+              "alias": "source_alert_id"
+            }
+          ]
+        }
+      },
+      {
+        "label": "CaseNote",
+        "oneToOne": {
+          "tableSource": {
+            "catalog": "aml_postgres",
+            "schema": "aml",
+            "table": "case_note"
+          },
+          "id": {
+            "fields": [
+              {
+                "type": "Int",
+                "field": "note_id",
+                "alias": "note_id"
+              }
+            ]
+          },
+          "attributes": [
+            {
+              "type": "Int",
+              "field": "case_id",
+              "alias": "case_id"
+            },
+            {
+              "type": "Int",
+              "field": "author_user_id",
+              "alias": "author_user_id"
+            },
+            {
+              "type": "DATETIME",
+              "field": "created_at",
+              "alias": "created_at"
+            },
+            {
+              "type": "String",
+              "field": "text",
+              "alias": "text"
+            }
+          ]
+        }
+      },
+      {
+        "label": "SAR",
+        "oneToOne": {
+          "tableSource": {
+            "catalog": "aml_postgres",
+            "schema": "aml",
+            "table": "sar"
+          },
+          "id": {
+            "fields": [
+              {
+                "type": "Int",
+                "field": "sar_id",
+                "alias": "sar_id"
+              }
+            ]
+          },
+          "attributes": [
+            {
+              "type": "Int",
+              "field": "case_id",
+              "alias": "case_id"
+            },
+            {
+              "type": "String",
+              "field": "status",
+              "alias": "status"
+            },
+            {
+              "type": "DATETIME",
+              "field": "created_at",
+              "alias": "created_at"
+            },
+            {
+              "type": "DATETIME",
+              "field": "submitted_at",
+              "alias": "submitted_at"
+            }
+          ]
+        }
       }
-    },
-    {
-      "label": "SENT_TXN",
-      "from": {
-        "table": {
-          "name": "aml.account",
-          "schema": "aml"
+    ],
+    "edges": [
+      {
+        "label": "OWNS",
+        "fromVertex": "Customer",
+        "toVertex": "Account",
+        "tableSource": {
+          "catalog": "aml_postgres",
+          "schema": "aml",
+          "table": "account"
         },
-        "column": "account_id"
+        "fromId": {
+          "fields": [
+            {
+              "type": "Int",
+              "field": "customer_id",
+              "alias": "customer_id"
+            }
+          ]
+        },
+        "toId": {
+          "fields": [
+            {
+              "type": "Int",
+              "field": "account_id",
+              "alias": "account_id"
+            }
+          ]
+        }
       },
-      "to": {
-        "table": {
-          "name": "aml.transaction",
-          "schema": "aml"
+      {
+        "label": "SENT_TXN",
+        "fromVertex": "Account",
+        "toVertex": "Transaction",
+        "tableSource": {
+          "catalog": "aml_postgres",
+          "schema": "aml",
+          "table": "transaction"
         },
-        "column": "from_account_id"
+        "fromId": {
+          "fields": [
+            {
+              "type": "Int",
+              "field": "from_account_id",
+              "alias": "from_account_id"
+            }
+          ]
+        },
+        "toId": {
+          "fields": [
+            {
+              "type": "Int",
+              "field": "txn_id",
+              "alias": "txn_id"
+            }
+          ]
+        }
+      },
+      {
+        "label": "TO_ACCOUNT",
+        "fromVertex": "Transaction",
+        "toVertex": "Account",
+        "tableSource": {
+          "catalog": "aml_postgres",
+          "schema": "aml",
+          "table": "transaction"
+        },
+        "fromId": {
+          "fields": [
+            {
+              "type": "Int",
+              "field": "to_account_id",
+              "alias": "to_account_id"
+            }
+          ]
+        },
+        "toId": {
+          "fields": [
+            {
+              "type": "Int",
+              "field": "account_id",
+              "alias": "account_id"
+            }
+          ]
+        }
+      },
+      {
+        "label": "FLAGS_CUSTOMER",
+        "fromVertex": "Alert",
+        "toVertex": "Customer",
+        "tableSource": {
+          "catalog": "aml_postgres",
+          "schema": "aml",
+          "table": "alert"
+        },
+        "fromId": {
+          "fields": [
+            {
+              "type": "Int",
+              "field": "primary_customer_id",
+              "alias": "primary_customer_id"
+            }
+          ]
+        },
+        "toId": {
+          "fields": [
+            {
+              "type": "Int",
+              "field": "customer_id",
+              "alias": "customer_id"
+            }
+          ]
+        }
+      },
+      {
+        "label": "FLAGS_ACCOUNT",
+        "fromVertex": "Alert",
+        "toVertex": "Account",
+        "tableSource": {
+          "catalog": "aml_postgres",
+          "schema": "aml",
+          "table": "alert"
+        },
+        "fromId": {
+          "fields": [
+            {
+              "type": "Int",
+              "field": "primary_account_id",
+              "alias": "primary_account_id"
+            }
+          ]
+        },
+        "toId": {
+          "fields": [
+            {
+              "type": "Int",
+              "field": "account_id",
+              "alias": "account_id"
+            }
+          ]
+        }
+      },
+      {
+        "label": "FROM_ALERT",
+        "fromVertex": "Case",
+        "toVertex": "Alert",
+        "tableSource": {
+          "catalog": "aml_postgres",
+          "schema": "aml",
+          "table": "case"
+        },
+        "fromId": {
+          "fields": [
+            {
+              "type": "Int",
+              "field": "source_alert_id",
+              "alias": "source_alert_id"
+            }
+          ]
+        },
+        "toId": {
+          "fields": [
+            {
+              "type": "Int",
+              "field": "alert_id",
+              "alias": "alert_id"
+            }
+          ]
+        }
+      },
+      {
+        "label": "HAS_NOTE",
+        "fromVertex": "Case",
+        "toVertex": "CaseNote",
+        "tableSource": {
+          "catalog": "aml_postgres",
+          "schema": "aml",
+          "table": "case_note"
+        },
+        "fromId": {
+          "fields": [
+            {
+              "type": "Int",
+              "field": "case_id",
+              "alias": "case_id"
+            }
+          ]
+        },
+        "toId": {
+          "fields": [
+            {
+              "type": "Int",
+              "field": "note_id",
+              "alias": "note_id"
+            }
+          ]
+        }
+      },
+      {
+        "label": "RESULTED_IN",
+        "fromVertex": "Case",
+        "toVertex": "SAR",
+        "tableSource": {
+          "catalog": "aml_postgres",
+          "schema": "aml",
+          "table": "sar"
+        },
+        "fromId": {
+          "fields": [
+            {
+              "type": "Int",
+              "field": "case_id",
+              "alias": "case_id"
+            }
+          ]
+        },
+        "toId": {
+          "fields": [
+            {
+              "type": "Int",
+              "field": "sar_id",
+              "alias": "sar_id"
+            }
+          ]
+        }
       }
-    },
-    {
-      "label": "TO_ACCOUNT",
-      "from": {
-        "table": {
-          "name": "aml.transaction",
-          "schema": "aml"
-        },
-        "column": "to_account_id"
-      },
-      "to": {
-        "table": {
-          "name": "aml.account",
-          "schema": "aml"
-        },
-        "column": "account_id"
-      }
-    },
-    {
-      "label": "FLAGS_CUSTOMER",
-      "from": {
-        "table": {
-          "name": "aml.alert",
-          "schema": "aml"
-        },
-        "column": "primary_customer_id"
-      },
-      "to": {
-        "table": {
-          "name": "aml.customer",
-          "schema": "aml"
-        },
-        "column": "customer_id"
-      }
-    },
-    {
-      "label": "FLAGS_ACCOUNT",
-      "from": {
-        "table": {
-          "name": "aml.alert",
-          "schema": "aml"
-        },
-        "column": "primary_account_id"
-      },
-      "to": {
-        "table": {
-          "name": "aml.account",
-          "schema": "aml"
-        },
-        "column": "account_id"
-      }
-    },
-    {
-      "label": "FROM_ALERT",
-      "from": {
-        "table": {
-          "name": "aml.case",
-          "schema": "aml"
-        },
-        "column": "source_alert_id"
-      },
-      "to": {
-        "table": {
-          "name": "aml.alert",
-          "schema": "aml"
-        },
-        "column": "alert_id"
-      }
-    },
-    {
-      "label": "ABOUT_CUSTOMER",
-      "from": {
-        "table": {
-          "name": "aml.case",
-          "schema": "aml"
-        },
-        "column": "case_id"
-      },
-      "to": {
-        "table": {
-          "name": "aml.customer",
-          "schema": "aml"
-        },
-        "column": "customer_id"
-      },
-      "condition": {
-        "sql": "EXISTS (SELECT 1 FROM aml.alert a WHERE a.alert_id = aml.case.source_alert_id AND a.primary_customer_id = aml.customer.customer_id)"
-      }
-    },
-    {
-      "label": "HAS_NOTE",
-      "from": {
-        "table": {
-          "name": "aml.case",
-          "schema": "aml"
-        },
-        "column": "case_id"
-      },
-      "to": {
-        "table": {
-          "name": "aml.case_note",
-          "schema": "aml"
-        },
-        "column": "case_id"
-      }
-    },
-    {
-      "label": "RESULTED_IN",
-      "from": {
-        "table": {
-          "name": "aml.case",
-          "schema": "aml"
-        },
-        "column": "case_id"
-      },
-      "to": {
-        "table": {
-          "name": "aml.sar",
-          "schema": "aml"
-        },
-        "column": "case_id"
-      }
-    }
-  ]
+    ]
+  }
 }
