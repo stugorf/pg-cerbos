@@ -140,7 +140,8 @@ class CerbosAuthz:
         resource_kind: str,
         resource_id: str,
         action: str,
-        attributes: Optional[dict] = None
+        attributes: Optional[dict] = None,
+        principal_attributes: Optional[dict] = None
     ) -> tuple[bool, Optional[str], str]:
         """
         Generic resource access check.
@@ -149,10 +150,11 @@ class CerbosAuthz:
             user_id: User identifier
             user_email: User email address
             user_roles: List of user roles
-            resource_kind: Type of resource (e.g., "postgres", "iceberg")
+            resource_kind: Type of resource (e.g., "postgres", "iceberg", "cypher_query")
             resource_id: Resource identifier
-            action: Action to check (e.g., "query", "read", "write")
+            action: Action to check (e.g., "query", "read", "write", "execute")
             attributes: Optional additional resource attributes
+            principal_attributes: Optional additional principal attributes (e.g., team, region, clearance_level)
             
         Returns:
             Tuple of (allowed: bool, reason: Optional[str], policy: str)
@@ -161,13 +163,28 @@ class CerbosAuthz:
             - policy: Policy name that was evaluated (resource_kind)
         """
         try:
+            # Build principal attributes
+            principal_attr = {
+                "email": Value(string_value=user_email)
+            }
+            
+            # Add additional principal attributes if provided
+            if principal_attributes:
+                for key, val in principal_attributes.items():
+                    if isinstance(val, str):
+                        principal_attr[key] = Value(string_value=val)
+                    elif isinstance(val, bool):
+                        principal_attr[key] = Value(bool_value=val)
+                    elif isinstance(val, (int, float)):
+                        principal_attr[key] = Value(number_value=float(val))
+                    else:
+                        principal_attr[key] = Value(string_value=str(val))
+            
             # Create principal using gRPC protobuf format
             principal = engine_pb2.Principal(
                 id=user_id,
                 roles=set(user_roles),
-                attr={
-                    "email": Value(string_value=user_email)
-                }
+                attr=principal_attr
             )
             
             # Create resource using gRPC protobuf format
@@ -180,6 +197,11 @@ class CerbosAuthz:
                     resource_dict[key] = Value(bool_value=val)
                 elif isinstance(val, (int, float)):
                     resource_dict[key] = Value(number_value=float(val))
+                elif isinstance(val, (set, list)):
+                    # Convert sets/lists to comma-separated string for Cerbos
+                    # Cerbos can parse this in policy expressions
+                    val_list = list(val) if isinstance(val, set) else val
+                    resource_dict[key] = Value(string_value=",".join(str(v) for v in val_list))
                 else:
                     resource_dict[key] = Value(string_value=str(val))
             

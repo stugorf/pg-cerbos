@@ -1,16 +1,73 @@
 # Python-generated files
 __pycache__/
 *.py[oc]
+*.pyc
+*.pyo
+*.pyd
+.Python
 build/
 dist/
 wheels/
-*.egg-info
+*.egg-info/
+.eggs/
+*.so
 
 # Virtual environments
-.venv
+.venv/
+venv/
+ENV/
+env/
+.uv/
 
-# Credentials
+# Credentials and environment
 .env
+.env.local
+.env.*.local
+*.key
+*.pem
+*.cert
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
 
 # Java/JAR files
 *.jar
+*.class
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Docker volumes and data
+docker-data/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+.hypothesis/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
