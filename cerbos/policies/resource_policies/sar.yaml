@@ -1,0 +1,19 @@
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: "default"
+  resource: "sar"
+  schemas:
+    principalSchema:
+      ref: cerbos:///aml_principal.json
+    resourceSchema:
+      ref: cerbos:///aml_resource.json
+  rules:
+    # Everyone can view SARs
+    - actions: ["view"]
+      effect: EFFECT_ALLOW
+      roles: ["aml_analyst", "aml_manager", "auditor"]
+    
+    # Only managers can draft and submit SARs
+    - actions: ["draft", "submit"]
+      effect: EFFECT_ALLOW
+      roles: ["aml_manager"]

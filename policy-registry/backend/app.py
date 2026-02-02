@@ -60,7 +60,8 @@ def log_authorization_decision(
     action: str,
     allowed: bool,
     reason: Optional[str] = None,
-    query_preview: Optional[str] = None
+    query_preview: Optional[str] = None,
+    policy: Optional[str] = None
 ):
     """Log an authorization decision for display in the UI."""
     global _authorization_decisions
@@ -74,6 +75,7 @@ def log_authorization_decision(
         "allowed": allowed,
         "reason": reason,
         "query_preview": query_preview,
+        "policy": policy or resource_kind,  # Default to resource_kind if policy not provided
         "decision": "ALLOW" if allowed else "DENY"
     }
     _authorization_decisions.append(decision)
@@ -642,10 +644,10 @@ def execute_graph_query(
     
     # Check authorization with Cerbos
     cerbos_client = get_cerbos_client()
-    user_roles = get_user_roles(current_user, db)
+    user_roles = get_user_roles(db, current_user.id)
     
     # Check if user can execute graph queries
-    allowed, reason = cerbos_client.check_resource_access(
+    allowed, reason, policy = cerbos_client.check_resource_access(
         user_id=str(current_user.id),
         user_email=current_user.email,
         user_roles=user_roles,
@@ -667,7 +669,8 @@ def execute_graph_query(
         action="graph_expand",
         allowed=True,
         reason="Graph query authorized",
-        query_preview=query[:200]
+        query_preview=query[:200],
+        policy=policy
     )
     
     # Execute graph query via PuppyGraph
@@ -725,7 +728,7 @@ def execute_sql_query(query_data: dict, current_user: User = Depends(get_current
     try:
         print("DEBUG: Calling Cerbos for authorization...")
         cerbos_client = get_cerbos_client()
-        allowed, reason = cerbos_client.check_query_permission(
+        allowed, reason, policy = cerbos_client.check_query_permission(
             user_id=str(current_user.id),
             user_email=current_user.email,
             user_roles=user_roles,
@@ -743,7 +746,8 @@ def execute_sql_query(query_data: dict, current_user: User = Depends(get_current
             action="query",
             allowed=allowed,
             reason=reason,
-            query_preview=sql_query[:200]
+            query_preview=sql_query[:200],
+            policy=policy
         )
         
         if not allowed:
@@ -1251,7 +1255,7 @@ def execute_query_template(template_data: dict, current_user: User = Depends(get
     # Check authorization with Cerbos
     try:
         cerbos_client = get_cerbos_client()
-        allowed, reason = cerbos_client.check_query_permission(
+        allowed, reason, policy = cerbos_client.check_query_permission(
             user_id=str(current_user.id),
             user_email=current_user.email,
             user_roles=user_roles,
@@ -1697,12 +1701,14 @@ def get_backend_authz_logs(lines: int = 100):
     
     # Convert authorization decisions to log format
     for decision in _authorization_decisions[-lines:]:
+        policy_name = decision.get('policy', decision.get('resource_kind', 'unknown'))
         decision_text = (
             f"Cerbos Authorization Decision: {decision['decision']} | "
             f"User: {decision['user_email']} ({decision['user_id']}) | "
             f"Roles: {', '.join(decision['user_roles'])} | "
             f"Resource: {decision['resource_kind']} | "
-            f"Action: {decision['action']}"
+            f"Action: {decision['action']} | "
+            f"Policy: {policy_name}"
         )
         if decision.get('query_preview'):
             decision_text += f" | Query: {decision['query_preview'][:100]}..."
@@ -1719,7 +1725,8 @@ def get_backend_authz_logs(lines: int = 100):
             "type": "authorization",
             "decision": decision['decision'],
             "user_email": decision['user_email'],
-            "resource_kind": decision['resource_kind']
+            "resource_kind": decision['resource_kind'],
+            "policy": policy_name
         })
     
     if not logs:
@@ -1756,10 +1763,10 @@ if AML_AVAILABLE:
         """List AML alerts with optional filtering."""
         # Check authorization
         cerbos_client = get_cerbos_client()
-        allowed, reason = cerbos_client.check_resource_access(
+        allowed, reason, policy = cerbos_client.check_resource_access(
             user_id=str(current_user.id),
             user_email=current_user.email,
-            user_roles=get_user_roles(current_user, db),
+            user_roles=get_user_roles(db, current_user.id),
             resource_kind="alert",
             resource_id="*",
             action="view"
@@ -1807,10 +1814,10 @@ if AML_AVAILABLE:
         """Get a specific alert by ID."""
         # Check authorization
         cerbos_client = get_cerbos_client()
-        allowed, reason = cerbos_client.check_resource_access(
+        allowed, reason, policy = cerbos_client.check_resource_access(
             user_id=str(current_user.id),
             user_email=current_user.email,
-            user_roles=get_user_roles(current_user, db),
+            user_roles=get_user_roles(db, current_user.id),
             resource_kind="alert",
             resource_id=str(alert_id),
             action="view"
@@ -1845,10 +1852,10 @@ if AML_AVAILABLE:
         """Escalate an alert to create a case."""
         # Check authorization
         cerbos_client = get_cerbos_client()
-        allowed, reason = cerbos_client.check_resource_access(
+        allowed, reason, policy = cerbos_client.check_resource_access(
             user_id=str(current_user.id),
             user_email=current_user.email,
-            user_roles=get_user_roles(current_user, db),
+            user_roles=get_user_roles(db, current_user.id),
             resource_kind="alert",
             resource_id=str(alert_id),
             action="escalate"
@@ -1896,10 +1903,10 @@ if AML_AVAILABLE:
         """List AML cases with optional filtering."""
         # Check authorization
         cerbos_client = get_cerbos_client()
-        allowed, reason = cerbos_client.check_resource_access(
+        allowed, reason, policy = cerbos_client.check_resource_access(
             user_id=str(current_user.id),
             user_email=current_user.email,
-            user_roles=get_user_roles(current_user, db),
+            user_roles=get_user_roles(db, current_user.id),
             resource_kind="case",
             resource_id="*",
             action="view"
@@ -1955,10 +1962,10 @@ if AML_AVAILABLE:
             case_owner = row[5]  # owner_user_id
             
             # Check authorization with case attributes
-            allowed, reason = cerbos_client.check_resource_access(
+            allowed, reason, policy = cerbos_client.check_resource_access(
                 user_id=str(current_user.id),
                 user_email=current_user.email,
-                user_roles=get_user_roles(current_user, db),
+                user_roles=get_user_roles(db, current_user.id),
                 resource_kind="case",
                 resource_id=str(case_id),
                 action="view",
@@ -1999,10 +2006,10 @@ if AML_AVAILABLE:
             case_owner = row[5]
             
             # Check authorization
-            allowed, reason = cerbos_client.check_resource_access(
+            allowed, reason, policy = cerbos_client.check_resource_access(
                 user_id=str(current_user.id),
                 user_email=current_user.email,
-                user_roles=get_user_roles(current_user, db),
+                user_roles=get_user_roles(db, current_user.id),
                 resource_kind="case",
                 resource_id=str(case_id),
                 action="add_note",
@@ -2053,10 +2060,10 @@ if AML_AVAILABLE:
             case_owner = row[5]
             
             # Check authorization for graph expansion
-            allowed, reason = cerbos_client.check_resource_access(
+            allowed, reason, policy = cerbos_client.check_resource_access(
                 user_id=str(current_user.id),
                 user_email=current_user.email,
-                user_roles=get_user_roles(current_user, db),
+                user_roles=get_user_roles(db, current_user.id),
                 resource_kind="transaction",
                 resource_id=f"case-{case_id}",
                 action="graph_expand",
@@ -2152,11 +2159,11 @@ if AML_AVAILABLE:
         """Assign a case to an analyst (manager only)."""
         # Check authorization - only managers can assign
         cerbos_client = get_cerbos_client()
-        user_roles = get_user_roles(current_user, db)
+        user_roles = get_user_roles(db, current_user.id)
         if "aml_manager" not in user_roles:
             raise HTTPException(status_code=403, detail="Only managers can assign cases")
         
-        allowed, reason = cerbos_client.check_resource_access(
+        allowed, reason, policy = cerbos_client.check_resource_access(
             user_id=str(current_user.id),
             user_email=current_user.email,
             user_roles=user_roles,
@@ -2213,10 +2220,10 @@ if AML_AVAILABLE:
             
             # Check authorization
             cerbos_client = get_cerbos_client()
-            allowed, reason = cerbos_client.check_resource_access(
+            allowed, reason, policy = cerbos_client.check_resource_access(
                 user_id=str(current_user.id),
                 user_email=current_user.email,
-                user_roles=get_user_roles(current_user, db),
+                user_roles=get_user_roles(db, current_user.id),
                 resource_kind="case",
                 resource_id=str(case_id),
                 action="close",
@@ -2267,10 +2274,10 @@ if AML_AVAILABLE:
             
             # Check authorization
             cerbos_client = get_cerbos_client()
-            allowed, reason = cerbos_client.check_resource_access(
+            allowed, reason, policy = cerbos_client.check_resource_access(
                 user_id=str(current_user.id),
                 user_email=current_user.email,
-                user_roles=get_user_roles(current_user, db),
+                user_roles=get_user_roles(db, current_user.id),
                 resource_kind="case",
                 resource_id=str(case_id),
                 action="view",
@@ -2311,10 +2318,10 @@ if AML_AVAILABLE:
         """List SARs with optional filtering."""
         # Check authorization
         cerbos_client = get_cerbos_client()
-        allowed, reason = cerbos_client.check_resource_access(
+        allowed, reason, policy = cerbos_client.check_resource_access(
             user_id=str(current_user.id),
             user_email=current_user.email,
-            user_roles=get_user_roles(current_user, db),
+            user_roles=get_user_roles(db, current_user.id),
             resource_kind="sar",
             resource_id="*",
             action="view"
@@ -2356,10 +2363,10 @@ if AML_AVAILABLE:
         """Get a specific SAR by ID."""
         # Check authorization
         cerbos_client = get_cerbos_client()
-        allowed, reason = cerbos_client.check_resource_access(
+        allowed, reason, policy = cerbos_client.check_resource_access(
             user_id=str(current_user.id),
             user_email=current_user.email,
-            user_roles=get_user_roles(current_user, db),
+            user_roles=get_user_roles(db, current_user.id),
             resource_kind="sar",
             resource_id=str(sar_id),
             action="view"
@@ -2392,11 +2399,11 @@ if AML_AVAILABLE:
         """Create a SAR draft (manager only)."""
         # Check authorization - only managers can create SARs
         cerbos_client = get_cerbos_client()
-        user_roles = get_user_roles(current_user, db)
+        user_roles = get_user_roles(db, current_user.id)
         if "aml_manager" not in user_roles:
             raise HTTPException(status_code=403, detail="Only managers can create SARs")
         
-        allowed, reason = cerbos_client.check_resource_access(
+        allowed, reason, policy = cerbos_client.check_resource_access(
             user_id=str(current_user.id),
             user_email=current_user.email,
             user_roles=user_roles,
@@ -2443,11 +2450,11 @@ if AML_AVAILABLE:
         """Submit a SAR (manager only)."""
         # Check authorization - only managers can submit SARs
         cerbos_client = get_cerbos_client()
-        user_roles = get_user_roles(current_user, db)
+        user_roles = get_user_roles(db, current_user.id)
         if "aml_manager" not in user_roles:
             raise HTTPException(status_code=403, detail="Only managers can submit SARs")
         
-        allowed, reason = cerbos_client.check_resource_access(
+        allowed, reason, policy = cerbos_client.check_resource_access(
             user_id=str(current_user.id),
             user_email=current_user.email,
             user_roles=user_roles,

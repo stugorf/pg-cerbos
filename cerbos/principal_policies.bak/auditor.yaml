@@ -1,0 +1,14 @@
+apiVersion: api.cerbos.dev/v1
+principalPolicy:
+  version: "default"
+  principal: "auditor"
+  rules:
+    - resource: "alert"
+      actions:
+        - view
+    - resource: "case"
+      actions:
+        - view
+    - resource: "sar"
+      actions:
+        - view

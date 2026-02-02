@@ -1,0 +1,14 @@
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: "default"
+  resource: "customer"
+  schemas:
+    principalSchema:
+      ref: cerbos:///aml_principal.json
+    resourceSchema:
+      ref: cerbos:///aml_resource.json
+  rules:
+    # Analysts and managers can view customer information
+    - actions: ["view"]
+      effect: EFFECT_ALLOW
+      roles: ["aml_analyst", "aml_manager"]

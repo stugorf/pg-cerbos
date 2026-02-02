@@ -1,0 +1,31 @@
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: "default"
+  resource: "case"
+  importDerivedRoles:
+    - aml_derived_roles
+  schemas:
+    principalSchema:
+      ref: cerbos:///aml_principal.json
+    resourceSchema:
+      ref: cerbos:///aml_resource.json
+  rules:
+    # Everyone can view cases
+    - actions: ["view"]
+      effect: EFFECT_ALLOW
+      roles: ["aml_analyst", "aml_manager", "auditor"]
+    
+    # Analysts can add notes to any case
+    - actions: ["add_note"]
+      effect: EFFECT_ALLOW
+      roles: ["aml_analyst", "aml_manager"]
+    
+    # Analysts can edit/close only cases assigned to them (via derived role)
+    - actions: ["edit", "close"]
+      effect: EFFECT_ALLOW
+      derivedRoles: ["case_assignee"]
+    
+    # Managers can always assign, edit, and close cases
+    - actions: ["assign", "edit", "close"]
+      effect: EFFECT_ALLOW
+      roles: ["aml_manager"]

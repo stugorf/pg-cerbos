@@ -1,0 +1,19 @@
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: "default"
+  resource: "alert"
+  schemas:
+    principalSchema:
+      ref: cerbos:///aml_principal.json
+    resourceSchema:
+      ref: cerbos:///aml_resource.json
+  rules:
+    # Analysts and managers can view, triage, and escalate alerts
+    - actions: ["view", "triage", "escalate"]
+      effect: EFFECT_ALLOW
+      roles: ["aml_analyst", "aml_manager"]
+    
+    # Auditors can only view alerts
+    - actions: ["view"]
+      effect: EFFECT_ALLOW
+      roles: ["auditor"]

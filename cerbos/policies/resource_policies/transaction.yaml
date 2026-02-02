@@ -1,0 +1,19 @@
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: "default"
+  resource: "transaction"
+  schemas:
+    principalSchema:
+      ref: cerbos:///aml_principal.json
+    resourceSchema:
+      ref: cerbos:///aml_resource.json
+  rules:
+    # Admin: Full access to transaction graph queries
+    - actions: ["view", "graph_expand"]
+      effect: EFFECT_ALLOW
+      roles: ["admin"]
+    
+    # Analysts and managers can view and expand transaction networks
+    - actions: ["view", "graph_expand"]
+      effect: EFFECT_ALLOW
+      roles: ["aml_analyst", "aml_manager"]

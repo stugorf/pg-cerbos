@@ -1,0 +1,24 @@
+apiVersion: api.cerbos.dev/v1
+principalPolicy:
+  version: "default"
+  principal: "aml_analyst"
+  rules:
+    - resource: "alert"
+      actions:
+        - view
+        - triage
+        - escalate
+    - resource: "case"
+      actions:
+        - view
+        - add_note
+    - resource: "transaction"
+      actions:
+        - view
+        - graph_expand
+    - resource: "customer"
+      actions:
+        - view
+    - resource: "sar"
+      actions:
+        - view

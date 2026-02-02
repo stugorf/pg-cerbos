@@ -1,12 +1,12 @@
 {
   "catalogs": [
     {
-      "field": "aml_postgres",
+      "name": "aml_postgres",
       "type": "postgresql",
       "jdbc": {
         "username": "postgres",
         "password": "postgres",
-        "jdbcUri": "jdbc:postgresql://postgres:5432/demo_data",
+        "jdbcUri": "jdbc:postgresql://postgres14:5432/demo_data",
         "driverClass": "org.postgresql.Driver"
       }
     }
@@ -134,7 +134,7 @@
               "alias": "to_account_id"
             },
             {
-              "type": "Double",
+              "type": "Decimal(15,2)",
               "field": "amount",
               "alias": "amount"
             },
@@ -251,7 +251,7 @@
               "alias": "updated_at"
             },
             {
-              "type": "Int",
+              "type": "String",
               "field": "owner_user_id",
               "alias": "owner_user_id"
             },
@@ -292,7 +292,7 @@
               "alias": "case_id"
             },
             {
-              "type": "Int",
+              "type": "String",
               "field": "author_user_id",
               "alias": "author_user_id"
             },
@@ -366,7 +366,7 @@
             {
               "type": "Int",
               "field": "account_id",
-              "alias": "account_id"
+              "alias": "owns_edge_id"
             }
           ]
         },
@@ -403,7 +403,7 @@
             {
               "type": "Int",
               "field": "txn_id",
-              "alias": "txn_id"
+              "alias": "sent_txn_edge_id"
             }
           ]
         },
@@ -440,7 +440,7 @@
             {
               "type": "Int",
               "field": "txn_id",
-              "alias": "txn_id"
+              "alias": "to_account_edge_id"
             }
           ]
         },
@@ -457,7 +457,7 @@
           "fields": [
             {
               "type": "Int",
-              "field": "account_id",
+              "field": "to_account_id",
               "alias": "account_id"
             }
           ]
@@ -494,7 +494,7 @@
           "fields": [
             {
               "type": "Int",
-              "field": "customer_id",
+              "field": "primary_customer_id",
               "alias": "customer_id"
             }
           ]
@@ -514,7 +514,7 @@
             {
               "type": "Int",
               "field": "alert_id",
-              "alias": "alert_id"
+              "alias": "flags_account_edge_id"
             }
           ]
         },
@@ -531,7 +531,7 @@
           "fields": [
             {
               "type": "Int",
-              "field": "account_id",
+              "field": "primary_account_id",
               "alias": "account_id"
             }
           ]
@@ -551,7 +551,7 @@
             {
               "type": "Int",
               "field": "case_id",
-              "alias": "case_id"
+              "alias": "from_alert_edge_id"
             }
           ]
         },
@@ -568,7 +568,7 @@
           "fields": [
             {
               "type": "Int",
-              "field": "alert_id",
+              "field": "source_alert_id",
               "alias": "alert_id"
             }
           ]
@@ -588,7 +588,7 @@
             {
               "type": "Int",
               "field": "note_id",
-              "alias": "note_id"
+              "alias": "has_note_edge_id"
             }
           ]
         },
@@ -625,7 +625,7 @@
             {
               "type": "Int",
               "field": "sar_id",
-              "alias": "sar_id"
+              "alias": "resulted_in_edge_id"
             }
           ]
         },

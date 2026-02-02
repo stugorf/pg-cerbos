@@ -3,12 +3,25 @@ PuppyGraph Client
 
 This module provides a client for querying PuppyGraph graph database.
 PuppyGraph allows querying PostgreSQL data as a graph using openCypher or Gremlin.
+
+PuppyGraph uses:
+- Bolt protocol (port 7687) for Cypher queries
+- Gremlin server (port 8182) for Gremlin queries
+- Web UI (port 8081) for administration
 """
 import os
 import logging
 import requests
 from typing import Optional, Dict, Any, List
 from requests.auth import HTTPBasicAuth
+
+# Try to import Neo4j driver for Bolt protocol support
+try:
+    from neo4j import GraphDatabase
+    NEO4J_AVAILABLE = True
+except ImportError:
+    NEO4J_AVAILABLE = False
+    logging.warning("Neo4j driver not available. Install with: pip install neo4j")
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +59,9 @@ class PuppyGraphClient:
     
     def execute_cypher(self, query: str) -> Dict[str, Any]:
         """
-        Execute an openCypher query.
+        Execute an openCypher query using Bolt protocol.
+        
+        PuppyGraph uses Bolt protocol on port 7687 for Cypher queries.
         
         Args:
             query: openCypher query string
@@ -54,20 +69,52 @@ class PuppyGraphClient:
         Returns:
             Query results as dictionary
         """
-        try:
-            # PuppyGraph openCypher endpoint (Bolt protocol over HTTP)
-            url = f"{self.base_url}/api/cypher"
-            response = self.session.post(
-                url,
-                json={"query": query},
-                headers={"Content-Type": "application/json"},
-                timeout=30
-            )
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            logger.error(f"PuppyGraph cypher query failed: {e}")
-            raise Exception(f"PuppyGraph query failed: {str(e)}")
+        # Extract host from base_url for Bolt connection
+        # Use Docker service name "puppygraph" when connecting from container
+        if "://" in self.base_url:
+            host = self.base_url.split("://")[1].split(":")[0]
+        else:
+            host = self.base_url.split(":")[0] if ":" in self.base_url else self.base_url
+        
+        # Use Docker service name if base_url contains "puppygraph" or use extracted host
+        if "puppygraph" in host or host == "localhost" or host.startswith("127."):
+            bolt_host = "puppygraph"  # Docker service name
+        else:
+            bolt_host = host
+        
+        bolt_uri = f"bolt://{bolt_host}:7687"
+        
+        if NEO4J_AVAILABLE:
+            try:
+                # Use Neo4j driver for Bolt protocol
+                driver = GraphDatabase.driver(
+                    bolt_uri,
+                    auth=(self.username, self.password)
+                )
+                with driver.session() as session:
+                    result = session.run(query)
+                    records = [dict(record) for record in result]
+                    driver.close()
+                    return {"results": records, "columns": list(records[0].keys()) if records else []}
+            except Exception as e:
+                logger.error(f"Bolt protocol query failed: {e}")
+                raise Exception(f"PuppyGraph Bolt query failed: {str(e)}")
+        else:
+            # Fallback: Try HTTP endpoint (may not work)
+            try:
+                url = f"{self.base_url}/api/query"
+                response = self.session.post(
+                    url,
+                    json={"query": query, "language": "cypher"},
+                    headers={"Content-Type": "application/json"},
+                    timeout=30
+                )
+                if response.status_code == 200:
+                    return response.json()
+                raise Exception(f"HTTP endpoint returned {response.status_code}")
+            except requests.exceptions.RequestException as e:
+                logger.error(f"PuppyGraph HTTP query failed: {e}")
+                raise Exception(f"PuppyGraph query failed. Install neo4j driver for Bolt protocol support: {str(e)}")
     
     def execute_gremlin(self, query: str) -> Dict[str, Any]:
         """
@@ -80,11 +127,22 @@ class PuppyGraphClient:
             Query results as dictionary
         """
         try:
-            # PuppyGraph Gremlin endpoint
-            url = f"{self.base_url}/api/gremlin"
+            # PuppyGraph query endpoint (used by Web UI)
+            url = f"{self.base_url}/api/query"
             response = self.session.post(
                 url,
-                json={"query": query},
+                json={"query": query, "language": "gremlin"},
+                headers={"Content-Type": "application/json"},
+                timeout=30
+            )
+            if response.status_code == 200:
+                return response.json()
+            
+            # If that fails, try alternative endpoint
+            url = f"{self.base_url}/query"
+            response = self.session.post(
+                url,
+                json={"query": query, "language": "gremlin"},
                 headers={"Content-Type": "application/json"},
                 timeout=30
             )

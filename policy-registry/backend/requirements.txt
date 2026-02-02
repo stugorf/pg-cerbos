@@ -12,3 +12,4 @@ requests>=2.32.4
 trino==0.336.0
 PyYAML>=6.0
 cerbos>=0.15.0
+neo4j>=5.0.0

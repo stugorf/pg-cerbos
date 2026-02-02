@@ -945,7 +945,7 @@ Use `admin@pg-cerbos.com` / `admin123` to access administrative features
 - **Authorization as a Service**: See how Cerbos makes independent authorization decisions
 - **Policy as Code**: Observe how YAML policies are evaluated
 - **Auto-refresh**: Logs update automatically every 5 seconds
-- **Decision Details**: View user, roles, resource, action, and decision (ALLOW/DENY)
+- **Decision Details**: View user, roles, resource, action, policy, and decision (ALLOW/DENY)
 
 ### 6. Execute SQL Queries
 - **SQL Query Tab**: Submit SQL queries and view results

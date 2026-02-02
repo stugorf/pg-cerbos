@@ -73,6 +73,7 @@ The UES MVP is a unified entitlements solution with comprehensive authentication
 │  │  │ • Policy CRUD Operations                                                                                                        │ │   │
 │  │  │ • Bundle Management                                                                                                             │ │   │
 │  │  │ • Query Execution & Results                                                                                                     │ │   │
+│  │  │ • Authorization Decision Logging (with policy tracking)                                                                         │ │   │
 │  │  │ • JWT Token Management                                                                                                          │ │   │
 │  │  └─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘ │   │
 │  └─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘   │

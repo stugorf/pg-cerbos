@@ -52,7 +52,7 @@ class CerbosAuthz:
         method: str,
         path: str,
         query_body: str
-    ) -> tuple[bool, Optional[str]]:
+    ) -> tuple[bool, Optional[str], str]:
         """
         Check if user can execute a SQL query.
         
@@ -65,9 +65,10 @@ class CerbosAuthz:
             query_body: SQL query string
             
         Returns:
-            Tuple of (allowed: bool, reason: Optional[str])
+            Tuple of (allowed: bool, reason: Optional[str], policy: str)
             - allowed: True if query is authorized, False otherwise
             - reason: Optional denial reason if not allowed
+            - policy: Policy name that was evaluated (e.g., "postgres", "iceberg")
         """
         try:
             # Determine resource kind from query content
@@ -121,15 +122,15 @@ class CerbosAuthz:
             
             if allowed:
                 logger.info(f"Cerbos authorized query for user {user_id}, resource {resource_kind}")
-                return True, None
+                return True, None, resource_kind
             else:
                 logger.info(f"Cerbos denied query for user {user_id}, resource {resource_kind}")
-                return False, "Query not authorized by Cerbos policy"
+                return False, "Query not authorized by Cerbos policy", resource_kind
                 
         except Exception as e:
             logger.error(f"Error checking Cerbos authorization: {e}", exc_info=True)
             # Fail closed - deny access on error
-            return False, f"Authorization check failed: {str(e)}"
+            return False, f"Authorization check failed: {str(e)}", resource_kind
     
     def check_resource_access(
         self,
@@ -140,7 +141,7 @@ class CerbosAuthz:
         resource_id: str,
         action: str,
         attributes: Optional[dict] = None
-    ) -> tuple[bool, Optional[str]]:
+    ) -> tuple[bool, Optional[str], str]:
         """
         Generic resource access check.
         
@@ -154,7 +155,10 @@ class CerbosAuthz:
             attributes: Optional additional resource attributes
             
         Returns:
-            Tuple of (allowed: bool, reason: Optional[str])
+            Tuple of (allowed: bool, reason: Optional[str], policy: str)
+            - allowed: True if access is authorized, False otherwise
+            - reason: Optional denial reason if not allowed
+            - policy: Policy name that was evaluated (resource_kind)
         """
         try:
             # Create principal using gRPC protobuf format
@@ -190,13 +194,13 @@ class CerbosAuthz:
             allowed = self.client.is_allowed(action, principal, resource)
             
             if allowed:
-                return True, None
+                return True, None, resource_kind
             else:
-                return False, f"{action} not authorized on {resource_kind}:{resource_id}"
+                return False, f"{action} not authorized on {resource_kind}:{resource_id}", resource_kind
                 
         except Exception as e:
             logger.error(f"Error checking Cerbos authorization: {e}", exc_info=True)
-            return False, f"Authorization check failed: {str(e)}"
+            return False, f"Authorization check failed: {str(e)}", resource_kind
 
 
 # Global instance (will be initialized on first use)

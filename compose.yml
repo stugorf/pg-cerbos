@@ -201,6 +201,26 @@ services:
       retries: 5
       start_period: 30s
 
+  # PostgreSQL 14.1 for PuppyGraph compatibility testing
+  postgres14:
+    image: postgres:14.1-alpine
+    container_name: pg-cerbos-postgres14
+    environment:
+      POSTGRES_USER: ${PG_SUPERUSER:-postgres}
+      POSTGRES_PASSWORD: ${PG_SUPERPASS:-postgres}
+      POSTGRES_DB: demo_data
+    ports: ["5435:5432"]
+    volumes:
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+      - postgres14_data:/var/lib/postgresql/data
+    networks: [trino-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_SUPERUSER:-postgres} -d demo_data"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
 
 volumes:
   pg_data:
@@ -208,6 +228,7 @@ volumes:
   minio_data:
   nessie_data:
   puppygraph_data:
+  postgres14_data:
 
 networks:
   trino-net: {}

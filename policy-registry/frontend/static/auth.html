@@ -3802,6 +3802,9 @@ principalPolicy:
                         const decisionClass = log.decision === 'ALLOW' ? 'effect-allow' : 'effect-deny';
                         html += `<span class="log-decision ${decisionClass}">${log.decision}</span>`;
                     }
+                    if (log.policy) {
+                        html += `<span class="log-policy">Policy: ${escapeHtml(log.policy)}</span>`;
+                    }
                     if (log.call_id && log.call_id !== 'no-call-id') {
                         html += `<span class="log-call-id">ID: ${log.call_id.substring(0, 12)}...</span>`;
                     }
@@ -3844,7 +3847,7 @@ principalPolicy:
             message = message.replace(/\b(DENY|DENIED)\b/g, '<strong class="effect-deny">✗ $1</strong>');
             
             // Highlight key-value pairs
-            message = message.replace(/(User|Roles|Resource|Action|Query|Reason):\s*([^|]+)/g, 
+            message = message.replace(/(User|Roles|Resource|Action|Policy|Query|Reason):\s*([^|]+)/g, 
                 '<span class="log-key">$1:</span> <span class="log-value">$2</span>');
             
             // Highlight resource and principal info
