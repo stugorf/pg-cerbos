@@ -134,7 +134,7 @@
               "alias": "to_account_id"
             },
             {
-              "type": "Double",
+              "type": "Decimal",
               "field": "amount",
               "alias": "amount"
             },
@@ -384,7 +384,7 @@
             {
               "type": "Int",
               "field": "account_id",
-              "alias": "account_id"
+              "alias": "owns_to_account_id"
             }
           ]
         }
@@ -458,7 +458,7 @@
             {
               "type": "Int",
               "field": "to_account_id",
-              "alias": "to_account_id"
+              "alias": "to_account_to_id"
             }
           ]
         }
@@ -606,7 +606,7 @@
             {
               "type": "Int",
               "field": "note_id",
-              "alias": "note_id"
+              "alias": "has_note_to_id"
             }
           ]
         }
@@ -643,7 +643,7 @@
             {
               "type": "Int",
               "field": "sar_id",
-              "alias": "sar_id"
+              "alias": "resulted_in_to_id"
             }
           ]
         }
