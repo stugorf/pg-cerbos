@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16
+    image: postgres:14.1-alpine
     container_name: pg-cerbos-postgres
     environment:
       POSTGRES_USER: ${PG_SUPERUSER:-postgres}
@@ -18,7 +18,7 @@ services:
       start_period: 30s
 
   query-results-db:
-    image: postgres:16
+    image: postgres:14.1-alpine
     container_name: pg-cerbos-query-results
     environment:
       POSTGRES_USER: ${PG_SUPERUSER:-postgres}
@@ -177,7 +177,7 @@ services:
 
   # PuppyGraph - Graph query engine for AML PoC
   puppygraph:
-    image: puppygraph/puppygraph:stable
+    image: puppygraph/puppygraph:0.112
     container_name: pg-cerbos-puppygraph
     environment:
       - PUPPYGRAPH_PASSWORD=${PUPPYGRAPH_PASSWORD:-puppygraph123}

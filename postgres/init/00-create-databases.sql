@@ -13,3 +13,11 @@ ALTER USER nessie CREATEDB;
 \c nessie
 GRANT ALL ON SCHEMA public TO nessie;
 ALTER SCHEMA public OWNER TO nessie;
+
+-- Set search_path for postgres user to include aml schema
+-- This ensures PuppyGraph can access tables in the aml schema without explicit qualification
+ALTER USER postgres SET search_path = aml, public;
+
+-- Set database-level search_path as additional safeguard for PuppyGraph metadata queries
+\c demo_data
+ALTER DATABASE demo_data SET search_path = aml, public;

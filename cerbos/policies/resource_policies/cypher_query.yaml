@@ -1,0 +1,86 @@
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: "default"
+  resource: "cypher_query"
+  schemas:
+    principalSchema:
+      ref: cerbos:///aml_principal.json
+    resourceSchema:
+      ref: cerbos:///cypher_query_resource.json
+  rules:
+    # Admin: Full access to all Cypher queries
+    - actions: ["execute"]
+      effect: EFFECT_ALLOW
+      roles: ["admin"]
+    
+    # Manager: Full access to all Cypher queries
+    - actions: ["execute"]
+      effect: EFFECT_ALLOW
+      roles: ["aml_manager", "aml_manager_full"]
+    
+    # Junior Analyst: Limited to 2 hops, no SAR nodes, basic node types only
+    - actions: ["execute"]
+      effect: EFFECT_ALLOW
+      roles: ["aml_analyst_junior"]
+      condition:
+        match:
+          expr: |
+            R.attr.max_depth <= 2 &&
+            !("SAR" in R.attr.node_labels) &&
+            !("Case" in R.attr.node_labels) &&
+            (("Customer" in R.attr.node_labels) || 
+             ("Transaction" in R.attr.node_labels) || 
+             ("Account" in R.attr.node_labels) ||
+             size(R.attr.node_labels) == 0)
+    
+    # Senior Analyst: Up to 4 hops, all except SAR, can access Case nodes
+    - actions: ["execute"]
+      effect: EFFECT_ALLOW
+      roles: ["aml_analyst_senior"]
+      condition:
+        match:
+          expr: |
+            R.attr.max_depth <= 4 &&
+            !("SAR" in R.attr.node_labels)
+    
+    # General Analyst (fallback for aml_analyst without derived role): Limited to 2 hops, no SAR
+    - actions: ["execute"]
+      effect: EFFECT_ALLOW
+      roles: ["aml_analyst"]
+      condition:
+        match:
+          expr: |
+            R.attr.max_depth <= 2 &&
+            !("SAR" in R.attr.node_labels)
+    
+    # Deny SAR access for all analysts (explicit deny for clarity)
+    - actions: ["execute"]
+      effect: EFFECT_DENY
+      roles: ["aml_analyst", "aml_analyst_junior", "aml_analyst_senior"]
+      condition:
+        match:
+          expr: |
+            "SAR" in R.attr.node_labels
+    
+    # Deny queries exceeding complexity limits for junior analysts
+    - actions: ["execute"]
+      effect: EFFECT_DENY
+      roles: ["aml_analyst_junior"]
+      condition:
+        match:
+          expr: |
+            R.attr.max_depth > 2 ||
+            (R.attr.estimated_nodes > 100) ||
+            (R.attr.estimated_edges > 100) ||
+            R.attr.query_pattern == "union"
+    
+    # Deny queries exceeding complexity limits for senior analysts
+    - actions: ["execute"]
+      effect: EFFECT_DENY
+      roles: ["aml_analyst_senior"]
+      condition:
+        match:
+          expr: |
+            R.attr.max_depth > 4 ||
+            (R.attr.estimated_nodes > 1000) ||
+            (R.attr.estimated_edges > 1000)

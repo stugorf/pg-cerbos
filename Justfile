@@ -127,6 +127,60 @@ check-puppygraph:
     @echo "🔍 Checking PuppyGraph service health..."
     @curl -s http://localhost:8081/api/health | jq || echo "❌ PuppyGraph not responding"
 
+# Activate PuppyGraph schema for query execution (uploads via API)
+activate-puppygraph-schema:
+    bash scripts/activate-puppygraph-schema.sh
+
+# Test PuppyGraph schema loading
+test-puppygraph-schema:
+    bash tests/test-schema-loading.sh
+
+# Test PuppyGraph schema API
+test-puppygraph-api:
+    bash tests/test-schema-api.sh
+
+# Test PuppyGraph schema validation
+test-puppygraph-validation:
+    bash tests/test-schema-validation.sh
+
+# Test PuppyGraph vertex queries
+test-puppygraph-vertices:
+    bash tests/test-vertex-queries.sh
+
+# Test PuppyGraph edge queries
+test-puppygraph-edges:
+    bash tests/test-edge-queries.sh
+
+# Test PuppyGraph complex queries
+test-puppygraph-complex:
+    bash tests/test-complex-queries.sh
+
+# Test PuppyGraph schema format
+test-puppygraph-format:
+    bash tests/test-schema-format.sh
+
+# Test PuppyGraph version compatibility
+test-puppygraph-version:
+    bash tests/test-version-compatibility.sh
+
+# Test PuppyGraph configuration persistence
+test-puppygraph-persistence:
+    bash tests/test-configuration-persistence.sh
+
+# Run all PuppyGraph tests
+test-puppygraph-all:
+    @echo "🧪 Running all PuppyGraph tests..."
+    just test-puppygraph-format
+    just test-puppygraph-version
+    just test-puppygraph-schema
+    just test-puppygraph-api
+    just test-puppygraph-validation
+    just test-puppygraph-vertices
+    just test-puppygraph-edges
+    just test-puppygraph-complex
+    just test-puppygraph-persistence
+    @echo "✅ All PuppyGraph tests passed!"
+
 # List Cerbos policies
 list-cerbos-policies:
     @echo "📋 Listing Cerbos policies..."

@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "title": "Cypher Query Resource Schema",
+  "description": "Schema for Cypher query resources with metadata extracted from query parsing",
+  "properties": {
+    "query_type": {
+      "type": "string",
+      "enum": ["cypher", "gremlin"],
+      "description": "Type of graph query"
+    },
+    "query": {
+      "type": "string",
+      "description": "The full Cypher query string"
+    },
+    "node_labels": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of node labels accessed in the query (e.g., Customer, Transaction, Account, SAR)"
+    },
+    "relationship_types": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of relationship types accessed in the query (e.g., OWNS, SENT_TXN, TO_ACCOUNT)"
+    },
+    "max_depth": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Maximum traversal depth (number of hops) in the query"
+    },
+    "has_aggregations": {
+      "type": "boolean",
+      "description": "Whether the query contains aggregation functions"
+    },
+    "query_pattern": {
+      "type": "string",
+      "enum": ["simple", "path", "multi_match", "with_clause", "union"],
+      "description": "Type of query pattern detected"
+    },
+    "path_variables": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "List of path variable names used in the query"
+    },
+    "has_where_clause": {
+      "type": "boolean",
+      "description": "Whether the query has a WHERE clause"
+    },
+    "has_order_by": {
+      "type": "boolean",
+      "description": "Whether the query has an ORDER BY clause"
+    },
+    "has_limit": {
+      "type": "boolean",
+      "description": "Whether the query has a LIMIT clause"
+    },
+    "estimated_nodes": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Estimated number of nodes that might be returned"
+    },
+    "estimated_edges": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Estimated number of edges that might be returned"
+    },
+    "risk_rating": {
+      "type": "string",
+      "description": "Risk rating extracted from query filters (e.g., 'high', 'medium', 'low')"
+    },
+    "transaction_amount": {
+      "type": "number",
+      "description": "Transaction amount extracted from query filters"
+    },
+    "transaction_amount_min": {
+      "type": "number",
+      "description": "Minimum transaction amount extracted from query filters"
+    },
+    "transaction_amount_max": {
+      "type": "number",
+      "description": "Maximum transaction amount extracted from query filters"
+    },
+    "pep_flag": {
+      "type": "boolean",
+      "description": "PEP (Politically Exposed Person) flag extracted from query filters"
+    },
+    "severity": {
+      "type": "string",
+      "description": "Severity level extracted from query filters"
+    },
+    "status": {
+      "type": "string",
+      "description": "Status extracted from query filters"
+    }
+  },
+  "required": ["query_type", "query"]
+}
