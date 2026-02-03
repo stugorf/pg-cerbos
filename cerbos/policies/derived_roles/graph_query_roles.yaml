@@ -1,0 +1,26 @@
+apiVersion: api.cerbos.dev/v1
+derivedRoles:
+  name: graph_query_roles
+  definitions:
+    # Junior Analyst: Users with aml_analyst_junior role inherit base aml_analyst permissions
+    # This allows policies to check for either aml_analyst_junior or aml_analyst
+    - name: aml_analyst_junior
+      parentRoles: ["aml_analyst"]
+      condition:
+        match:
+          expr: true  # Always applies when user has aml_analyst_junior role
+    
+    # Senior Analyst: Users with aml_analyst_senior role inherit base aml_analyst permissions
+    # This allows policies to check for either aml_analyst_senior or aml_analyst
+    - name: aml_analyst_senior
+      parentRoles: ["aml_analyst"]
+      condition:
+        match:
+          expr: true  # Always applies when user has aml_analyst_senior role
+    
+    # Manager Full: Users with aml_manager_full role inherit base aml_manager permissions
+    - name: aml_manager_full
+      parentRoles: ["aml_manager"]
+      condition:
+        match:
+          expr: true  # Always applies when user has aml_manager_full role

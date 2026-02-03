@@ -669,6 +669,21 @@ def execute_graph_query(
         except Exception as e:
             logger.warning(f"Error parsing Cypher query: {e}, continuing with basic authorization")
     
+    # Ensure default values for policy evaluation (in case parsing failed)
+    if query_type == "cypher":
+        if "max_depth" not in cypher_metadata:
+            cypher_metadata["max_depth"] = 0
+        if "node_labels" not in cypher_metadata:
+            cypher_metadata["node_labels"] = []
+        if "relationship_types" not in cypher_metadata:
+            cypher_metadata["relationship_types"] = []
+        if "estimated_nodes" not in cypher_metadata:
+            cypher_metadata["estimated_nodes"] = 0
+        if "estimated_edges" not in cypher_metadata:
+            cypher_metadata["estimated_edges"] = 0
+        if "query_pattern" not in cypher_metadata:
+            cypher_metadata["query_pattern"] = "simple"
+    
     # Check authorization with Cerbos
     cerbos_client = get_cerbos_client()
     user_roles = get_user_roles(db, current_user.id)

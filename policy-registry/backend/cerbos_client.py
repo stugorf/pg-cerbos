@@ -9,7 +9,7 @@ import logging
 from typing import List, Optional
 from cerbos.sdk.grpc.client import CerbosClient
 from cerbos.engine.v1 import engine_pb2
-from google.protobuf.struct_pb2 import Value
+from google.protobuf.struct_pb2 import Value, ListValue
 
 logger = logging.getLogger(__name__)
 
@@ -198,10 +198,11 @@ class CerbosAuthz:
                 elif isinstance(val, (int, float)):
                     resource_dict[key] = Value(number_value=float(val))
                 elif isinstance(val, (set, list)):
-                    # Convert sets/lists to comma-separated string for Cerbos
-                    # Cerbos can parse this in policy expressions
+                    # Convert sets/lists to list_value for Cerbos (supports array operations in CEL)
                     val_list = list(val) if isinstance(val, set) else val
-                    resource_dict[key] = Value(string_value=",".join(str(v) for v in val_list))
+                    # Use list_value for proper array support in Cerbos CEL expressions
+                    list_vals = [Value(string_value=str(v)) for v in val_list]
+                    resource_dict[key] = Value(list_value=ListValue(values=list_vals))
                 else:
                     resource_dict[key] = Value(string_value=str(val))
             

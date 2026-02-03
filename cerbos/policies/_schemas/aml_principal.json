@@ -18,12 +18,16 @@
       "items": {
         "type": "string",
         "enum": [
+          "admin",
           "aml_analyst",
+          "aml_analyst_junior",
+          "aml_analyst_senior",
           "aml_manager",
+          "aml_manager_full",
           "auditor"
         ]
       },
-      "description": "List of AML roles assigned to the user"
+      "description": "List of AML roles assigned to the user (includes admin for system-wide access)"
     },
     "team": {
       "type": "string",
