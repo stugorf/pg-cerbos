@@ -106,10 +106,13 @@
 - ✅ Add query complexity limits (estimated nodes/edges per role)
 - ✅ Create comprehensive test suite (`cypher_query_test_suite.yaml`)
 
-### Phase 3: Enhanced ABAC (1-2 weeks)
-- Add user attributes
-- Extract resource attributes
-- Create attribute-based policies
+### Phase 3: Enhanced ABAC (3 weeks) - PLANNED
+- ✅ **PLAN CREATED:** See [PHASE3_ENHANCED_ABAC_PLAN.md](./PHASE3_ENHANCED_ABAC_PLAN.md) for detailed implementation plan
+- Add user attributes (team, region, clearance_level, department)
+- Update principal schema with user attributes
+- Create attribute-based policies (team-based, clearance-based, region-based)
+- Integrate user attributes into authorization flow
+- Create comprehensive test suite for ABAC rules
 
 ### Phase 4: Complexity Analysis (1 week)
 - Implement complexity analysis
@@ -218,9 +221,12 @@ resourcePolicy:
 - Schema validation enabled and working correctly
 - All rules documented with reasoning and test verification
 
-### ⏳ Phase 3: Enhanced ABAC - PENDING
-- User attributes (team, region, clearance_level)
-- Attribute-based policies (team-based, clearance-based)
+### ⏳ Phase 3: Enhanced ABAC - PLANNED
+- ✅ **Implementation plan created:** See [PHASE3_ENHANCED_ABAC_PLAN.md](./PHASE3_ENHANCED_ABAC_PLAN.md)
+- User attributes (team, region, clearance_level, department) - Schema and models planned
+- Attribute-based policies (team-based, clearance-based, region-based) - Rules designed
+- Integration with authorization flow - Implementation steps defined
+- Test suite - Test cases designed
 
 ### ⏳ Phase 4: Complexity Analysis - PARTIALLY COMPLETE
 - Depth, node, edge analysis: ✅ Complete
@@ -230,9 +236,10 @@ resourcePolicy:
 ## Next Steps
 
 1. ✅ **Phase 2 implementation complete** - All 16 tests passing with schema validation enabled
-2. **Run test suite** to verify all role restrictions work correctly: `just test-cypher-rbac`
-3. **Start Phase 3** (Enhanced ABAC) for user attribute-based restrictions
-4. **Iterate** based on feedback and testing
+2. ✅ **Phase 3 plan created** - See [PHASE3_ENHANCED_ABAC_PLAN.md](./PHASE3_ENHANCED_ABAC_PLAN.md) for detailed implementation plan
+3. **Run test suite** to verify all role restrictions work correctly: `just test-cypher-rbac`
+4. **Start Phase 3 implementation** (Enhanced ABAC) following the detailed plan
+5. **Iterate** based on feedback and testing
 
 ## Phase 2 Implementation Details
 
