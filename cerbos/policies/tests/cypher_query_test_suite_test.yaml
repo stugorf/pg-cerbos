@@ -1,0 +1,355 @@
+---
+name: "Cypher Query Role Restrictions Test Suite"
+description: "Comprehensive test suite for Phase 2: Enhanced RBAC - Cypher query role restrictions, hierarchy, and complexity limits"
+
+principals:
+  admin:
+    id: "1"
+    roles: ["admin"]
+    attr:
+      email: "admin@pg-cerbos.com"
+      is_active: true
+  
+  manager:
+    id: "2"
+    roles: ["aml_manager"]
+    attr:
+      email: "manager@pg-cerbos.com"
+      is_active: true
+  
+  analyst_junior:
+    id: "3"
+    roles: ["aml_analyst", "aml_analyst_junior"]
+    attr:
+      email: "analyst.junior@pg-cerbos.com"
+      is_active: true
+  
+  analyst_senior:
+    id: "4"
+    roles: ["aml_analyst", "aml_analyst_junior", "aml_analyst_senior"]
+    attr:
+      email: "analyst.senior@pg-cerbos.com"
+      is_active: true
+  
+  analyst_base:
+    id: "5"
+    roles: ["aml_analyst"]
+    attr:
+      email: "analyst@pg-cerbos.com"
+      is_active: true
+
+resources:
+  simple_customer_query:
+    kind: "cypher_query"
+    id: "query-001"
+    attr:
+      query_type: "cypher"
+      query: "MATCH (c:Customer) RETURN c LIMIT 10"
+      node_labels: ["Customer"]
+      relationship_types: []
+      max_depth: 0
+      estimated_nodes: 10
+      estimated_edges: 0
+      query_pattern: "simple"
+      has_aggregations: false
+  
+  basic_owns_query:
+    kind: "cypher_query"
+    id: "query-002"
+    attr:
+      query_type: "cypher"
+      query: "MATCH (c:Customer)-[:OWNS]->(acc:Account) RETURN c, acc"
+      node_labels: ["Customer", "Account"]
+      relationship_types: ["OWNS"]
+      max_depth: 1
+      estimated_nodes: 20
+      estimated_edges: 10
+      query_pattern: "simple"
+      has_aggregations: false
+  
+  two_hop_query:
+    kind: "cypher_query"
+    id: "query-003"
+    attr:
+      query_type: "cypher"
+      query: "MATCH (c:Customer)-[:OWNS]->(acc:Account)-[:SENT_TXN]->(txn:Transaction) RETURN c, acc, txn"
+      node_labels: ["Customer", "Account", "Transaction"]
+      relationship_types: ["OWNS", "SENT_TXN"]
+      max_depth: 2
+      estimated_nodes: 30
+      estimated_edges: 20
+      query_pattern: "simple"
+      has_aggregations: false
+  
+  three_hop_query:
+    kind: "cypher_query"
+    id: "query-004"
+    attr:
+      query_type: "cypher"
+      query: "MATCH (c:Customer)-[:OWNS]->(acc1:Account)-[:SENT_TXN]->(txn:Transaction)-[:TO_ACCOUNT]->(acc2:Account) RETURN c, txn"
+      node_labels: ["Customer", "Account", "Transaction"]
+      relationship_types: ["OWNS", "SENT_TXN", "TO_ACCOUNT"]
+      max_depth: 3
+      estimated_nodes: 40
+      estimated_edges: 30
+      query_pattern: "simple"
+      has_aggregations: false
+  
+  four_hop_query:
+    kind: "cypher_query"
+    id: "query-005"
+    attr:
+      query_type: "cypher"
+      query: "MATCH (c1:Customer)-[:OWNS]->(acc1:Account)-[:SENT_TXN]->(txn:Transaction)-[:TO_ACCOUNT]->(acc2:Account)<-[:OWNS]-(c2:Customer) RETURN c1, c2, txn"
+      node_labels: ["Customer", "Account", "Transaction"]
+      relationship_types: ["OWNS", "SENT_TXN", "TO_ACCOUNT"]
+      max_depth: 4
+      estimated_nodes: 50
+      estimated_edges: 40
+      query_pattern: "simple"
+      has_aggregations: false
+  
+  sar_query:
+    kind: "cypher_query"
+    id: "query-007"
+    attr:
+      query_type: "cypher"
+      query: "MATCH (sar:SAR) RETURN sar LIMIT 10"
+      node_labels: ["SAR"]
+      relationship_types: []
+      max_depth: 0
+      estimated_nodes: 10
+      estimated_edges: 0
+      query_pattern: "simple"
+      has_aggregations: false
+  
+  case_query:
+    kind: "cypher_query"
+    id: "query-008"
+    attr:
+      query_type: "cypher"
+      query: "MATCH (c:Case) RETURN c LIMIT 10"
+      node_labels: ["Case"]
+      relationship_types: []
+      max_depth: 0
+      estimated_nodes: 10
+      estimated_edges: 0
+      query_pattern: "simple"
+      has_aggregations: false
+  
+  flags_customer_query:
+    kind: "cypher_query"
+    id: "query-009"
+    attr:
+      query_type: "cypher"
+      query: "MATCH (a:Alert)-[:FLAGS_CUSTOMER]->(c:Customer) RETURN a, c"
+      node_labels: ["Alert", "Customer"]
+      relationship_types: ["FLAGS_CUSTOMER"]
+      max_depth: 1
+      estimated_nodes: 20
+      estimated_edges: 10
+      query_pattern: "simple"
+      has_aggregations: false
+  
+  from_alert_query:
+    kind: "cypher_query"
+    id: "query-010"
+    attr:
+      query_type: "cypher"
+      query: "MATCH (c:Case)-[:FROM_ALERT]->(a:Alert) RETURN c, a"
+      node_labels: ["Case", "Alert"]
+      relationship_types: ["FROM_ALERT"]
+      max_depth: 1
+      estimated_nodes: 20
+      estimated_edges: 10
+      query_pattern: "simple"
+      has_aggregations: false
+
+tests:
+  # ============================================================================
+  # Admin Tests - Full Access
+  # ============================================================================
+  - name: "Admin can execute simple customer query"
+    input:
+      principals: ["admin"]
+      resources: ["simple_customer_query"]
+      actions: ["execute"]
+    expected:
+      - principal: admin
+        resource: simple_customer_query
+        actions:
+          execute: EFFECT_ALLOW
+  
+  - name: "Admin can execute SAR query"
+    input:
+      principals: ["admin"]
+      resources: ["sar_query"]
+      actions: ["execute"]
+    expected:
+      - principal: admin
+        resource: sar_query
+        actions:
+          execute: EFFECT_ALLOW
+  
+  # ============================================================================
+  # Manager Tests - Full Access
+  # ============================================================================
+  - name: "Manager can execute simple customer query"
+    input:
+      principals: ["manager"]
+      resources: ["simple_customer_query"]
+      actions: ["execute"]
+    expected:
+      - principal: manager
+        resource: simple_customer_query
+        actions:
+          execute: EFFECT_ALLOW
+  
+  # ============================================================================
+  # Junior Analyst Tests - Restricted Access
+  # ============================================================================
+  - name: "Junior analyst can execute simple customer query"
+    input:
+      principals: ["analyst_junior"]
+      resources: ["simple_customer_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_junior
+        resource: simple_customer_query
+        actions:
+          execute: EFFECT_ALLOW
+  
+  - name: "Junior analyst can execute 2-hop query"
+    input:
+      principals: ["analyst_junior"]
+      resources: ["two_hop_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_junior
+        resource: two_hop_query
+        actions:
+          execute: EFFECT_ALLOW
+  
+  - name: "Junior analyst cannot execute 3-hop query (exceeds depth limit)"
+    input:
+      principals: ["analyst_junior"]
+      resources: ["three_hop_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_junior
+        resource: three_hop_query
+        actions:
+          execute: EFFECT_DENY
+  
+  - name: "Junior analyst cannot execute SAR query"
+    input:
+      principals: ["analyst_junior"]
+      resources: ["sar_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_junior
+        resource: sar_query
+        actions:
+          execute: EFFECT_DENY
+  
+  - name: "Junior analyst cannot execute Case query"
+    input:
+      principals: ["analyst_junior"]
+      resources: ["case_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_junior
+        resource: case_query
+        actions:
+          execute: EFFECT_DENY
+  
+  - name: "Junior analyst cannot execute FLAGS_CUSTOMER relationship query"
+    input:
+      principals: ["analyst_junior"]
+      resources: ["flags_customer_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_junior
+        resource: flags_customer_query
+        actions:
+          execute: EFFECT_DENY
+  
+  - name: "Junior analyst cannot execute FROM_ALERT relationship query"
+    input:
+      principals: ["analyst_junior"]
+      resources: ["from_alert_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_junior
+        resource: from_alert_query
+        actions:
+          execute: EFFECT_DENY
+  
+  # ============================================================================
+  # Senior Analyst Tests - Extended Access
+  # ============================================================================
+  - name: "Senior analyst can execute 2-hop query (inherits from junior)"
+    input:
+      principals: ["analyst_senior"]
+      resources: ["two_hop_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_senior
+        resource: two_hop_query
+        actions:
+          execute: EFFECT_ALLOW
+  
+  - name: "Senior analyst can execute 4-hop query (at senior limit)"
+    input:
+      principals: ["analyst_senior"]
+      resources: ["four_hop_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_senior
+        resource: four_hop_query
+        actions:
+          execute: EFFECT_ALLOW
+  
+  - name: "Senior analyst cannot execute SAR query"
+    input:
+      principals: ["analyst_senior"]
+      resources: ["sar_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_senior
+        resource: sar_query
+        actions:
+          execute: EFFECT_DENY
+  
+  - name: "Senior analyst can execute Case query"
+    input:
+      principals: ["analyst_senior"]
+      resources: ["case_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_senior
+        resource: case_query
+        actions:
+          execute: EFFECT_ALLOW
+  
+  - name: "Senior analyst can execute FLAGS_CUSTOMER relationship query"
+    input:
+      principals: ["analyst_senior"]
+      resources: ["flags_customer_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_senior
+        resource: flags_customer_query
+        actions:
+          execute: EFFECT_ALLOW
+  
+  - name: "Senior analyst can execute FROM_ALERT relationship query"
+    input:
+      principals: ["analyst_senior"]
+      resources: ["from_alert_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_senior
+        resource: from_alert_query
+        actions:
+          execute: EFFECT_ALLOW
