@@ -821,21 +821,21 @@ def execute_graph_query(
         principal_attributes=user_attributes  # Phase 3: Pass user attributes for ABAC
     )
     
-    if not allowed:
-        raise HTTPException(status_code=403, detail=reason or "Not authorized to execute graph queries")
-    
-    # Log authorization decision
+    # Log authorization decision (both allowed and denied)
     log_authorization_decision(
         user_id=str(current_user.id),
         user_email=current_user.email,
         user_roles=user_roles,
         resource_kind=resource_kind,
         action=action,
-        allowed=True,
-        reason="Graph query authorized",
+        allowed=allowed,
+        reason=reason or ("Graph query authorized" if allowed else "Not authorized to execute graph queries"),
         query_preview=query[:200],
         policy=policy
     )
+    
+    if not allowed:
+        raise HTTPException(status_code=403, detail=reason or "Not authorized to execute graph queries")
     
     # Execute graph query via PuppyGraph
     try:
@@ -1428,6 +1428,19 @@ def execute_query_template(template_data: dict, current_user: User = Depends(get
             query_body=sql_query
         )
         
+        # Log authorization decision (both allowed and denied)
+        log_authorization_decision(
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            user_roles=user_roles,
+            resource_kind="iceberg" if "iceberg." in sql_query.lower() else "postgres",
+            action="query",
+            allowed=allowed,
+            reason=reason,
+            query_preview=sql_query[:200],
+            policy=policy
+        )
+        
         if not allowed:
             raise HTTPException(
                 status_code=403,
@@ -1927,13 +1940,25 @@ if AML_AVAILABLE:
         """List AML alerts with optional filtering."""
         # Check authorization
         cerbos_client = get_cerbos_client()
+        user_roles = get_user_roles(db, current_user.id)
         allowed, reason, policy = cerbos_client.check_resource_access(
             user_id=str(current_user.id),
             user_email=current_user.email,
-            user_roles=get_user_roles(db, current_user.id),
+            user_roles=user_roles,
             resource_kind="alert",
             resource_id="*",
             action="view"
+        )
+        # Log authorization decision (both allowed and denied)
+        log_authorization_decision(
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            user_roles=user_roles,
+            resource_kind="alert",
+            action="view",
+            allowed=allowed,
+            reason=reason,
+            policy=policy
         )
         if not allowed:
             raise HTTPException(status_code=403, detail=reason or "Not authorized to view alerts")
@@ -1978,13 +2003,25 @@ if AML_AVAILABLE:
         """Get a specific alert by ID."""
         # Check authorization
         cerbos_client = get_cerbos_client()
+        user_roles = get_user_roles(db, current_user.id)
         allowed, reason, policy = cerbos_client.check_resource_access(
             user_id=str(current_user.id),
             user_email=current_user.email,
-            user_roles=get_user_roles(db, current_user.id),
+            user_roles=user_roles,
             resource_kind="alert",
             resource_id=str(alert_id),
             action="view"
+        )
+        # Log authorization decision (both allowed and denied)
+        log_authorization_decision(
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            user_roles=user_roles,
+            resource_kind="alert",
+            action="view",
+            allowed=allowed,
+            reason=reason,
+            policy=policy
         )
         if not allowed:
             raise HTTPException(status_code=403, detail=reason or "Not authorized to view this alert")
@@ -2016,13 +2053,25 @@ if AML_AVAILABLE:
         """Escalate an alert to create a case."""
         # Check authorization
         cerbos_client = get_cerbos_client()
+        user_roles = get_user_roles(db, current_user.id)
         allowed, reason, policy = cerbos_client.check_resource_access(
             user_id=str(current_user.id),
             user_email=current_user.email,
-            user_roles=get_user_roles(db, current_user.id),
+            user_roles=user_roles,
             resource_kind="alert",
             resource_id=str(alert_id),
             action="escalate"
+        )
+        # Log authorization decision (both allowed and denied)
+        log_authorization_decision(
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            user_roles=user_roles,
+            resource_kind="alert",
+            action="escalate",
+            allowed=allowed,
+            reason=reason,
+            policy=policy
         )
         if not allowed:
             raise HTTPException(status_code=403, detail=reason or "Not authorized to escalate this alert")
@@ -2067,13 +2116,25 @@ if AML_AVAILABLE:
         """List AML cases with optional filtering."""
         # Check authorization
         cerbos_client = get_cerbos_client()
+        user_roles = get_user_roles(db, current_user.id)
         allowed, reason, policy = cerbos_client.check_resource_access(
             user_id=str(current_user.id),
             user_email=current_user.email,
-            user_roles=get_user_roles(db, current_user.id),
+            user_roles=user_roles,
             resource_kind="case",
             resource_id="*",
             action="view"
+        )
+        # Log authorization decision (both allowed and denied)
+        log_authorization_decision(
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            user_roles=user_roles,
+            resource_kind="case",
+            action="view",
+            allowed=allowed,
+            reason=reason,
+            policy=policy
         )
         if not allowed:
             raise HTTPException(status_code=403, detail=reason or "Not authorized to view cases")
@@ -2126,14 +2187,26 @@ if AML_AVAILABLE:
             case_owner = row[5]  # owner_user_id
             
             # Check authorization with case attributes
+            user_roles = get_user_roles(db, current_user.id)
             allowed, reason, policy = cerbos_client.check_resource_access(
                 user_id=str(current_user.id),
                 user_email=current_user.email,
-                user_roles=get_user_roles(db, current_user.id),
+                user_roles=user_roles,
                 resource_kind="case",
                 resource_id=str(case_id),
                 action="view",
                 attributes={"owner_user_id": case_owner, "status": row[1], "team": row[6] or ""}
+            )
+            # Log authorization decision (both allowed and denied)
+            log_authorization_decision(
+                user_id=str(current_user.id),
+                user_email=current_user.email,
+                user_roles=user_roles,
+                resource_kind="case",
+                action="view",
+                allowed=allowed,
+                reason=reason,
+                policy=policy
             )
             if not allowed:
                 raise HTTPException(status_code=403, detail=reason or "Not authorized to view this case")
@@ -2170,14 +2243,26 @@ if AML_AVAILABLE:
             case_owner = row[5]
             
             # Check authorization
+            user_roles = get_user_roles(db, current_user.id)
             allowed, reason, policy = cerbos_client.check_resource_access(
                 user_id=str(current_user.id),
                 user_email=current_user.email,
-                user_roles=get_user_roles(db, current_user.id),
+                user_roles=user_roles,
                 resource_kind="case",
                 resource_id=str(case_id),
                 action="add_note",
                 attributes={"owner_user_id": case_owner, "status": row[1]}
+            )
+            # Log authorization decision (both allowed and denied)
+            log_authorization_decision(
+                user_id=str(current_user.id),
+                user_email=current_user.email,
+                user_roles=user_roles,
+                resource_kind="case",
+                action="add_note",
+                allowed=allowed,
+                reason=reason,
+                policy=policy
             )
             if not allowed:
                 raise HTTPException(status_code=403, detail=reason or "Not authorized to add notes to this case")
@@ -2224,14 +2309,26 @@ if AML_AVAILABLE:
             case_owner = row[5]
             
             # Check authorization for graph expansion
+            user_roles = get_user_roles(db, current_user.id)
             allowed, reason, policy = cerbos_client.check_resource_access(
                 user_id=str(current_user.id),
                 user_email=current_user.email,
-                user_roles=get_user_roles(db, current_user.id),
+                user_roles=user_roles,
                 resource_kind="transaction",
                 resource_id=f"case-{case_id}",
                 action="graph_expand",
                 attributes={"case_id": str(case_id), "owner_user_id": case_owner}
+            )
+            # Log authorization decision (both allowed and denied)
+            log_authorization_decision(
+                user_id=str(current_user.id),
+                user_email=current_user.email,
+                user_roles=user_roles,
+                resource_kind="transaction",
+                action="graph_expand",
+                allowed=allowed,
+                reason=reason,
+                policy=policy
             )
             if not allowed:
                 raise HTTPException(status_code=403, detail=reason or "Not authorized to expand graph for this case")
@@ -2335,6 +2432,17 @@ if AML_AVAILABLE:
             resource_id=str(case_id),
             action="assign"
         )
+        # Log authorization decision (both allowed and denied)
+        log_authorization_decision(
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            user_roles=user_roles,
+            resource_kind="case",
+            action="assign",
+            allowed=allowed,
+            reason=reason,
+            policy=policy
+        )
         if not allowed:
             raise HTTPException(status_code=403, detail=reason or "Not authorized to assign this case")
         
@@ -2384,14 +2492,26 @@ if AML_AVAILABLE:
             
             # Check authorization
             cerbos_client = get_cerbos_client()
+            user_roles = get_user_roles(db, current_user.id)
             allowed, reason, policy = cerbos_client.check_resource_access(
                 user_id=str(current_user.id),
                 user_email=current_user.email,
-                user_roles=get_user_roles(db, current_user.id),
+                user_roles=user_roles,
                 resource_kind="case",
                 resource_id=str(case_id),
                 action="close",
                 attributes={"owner_user_id": case_owner, "status": row[1]}
+            )
+            # Log authorization decision (both allowed and denied)
+            log_authorization_decision(
+                user_id=str(current_user.id),
+                user_email=current_user.email,
+                user_roles=user_roles,
+                resource_kind="case",
+                action="close",
+                allowed=allowed,
+                reason=reason,
+                policy=policy
             )
             if not allowed:
                 raise HTTPException(status_code=403, detail=reason or "Not authorized to close this case")
@@ -2438,14 +2558,26 @@ if AML_AVAILABLE:
             
             # Check authorization
             cerbos_client = get_cerbos_client()
+            user_roles = get_user_roles(db, current_user.id)
             allowed, reason, policy = cerbos_client.check_resource_access(
                 user_id=str(current_user.id),
                 user_email=current_user.email,
-                user_roles=get_user_roles(db, current_user.id),
+                user_roles=user_roles,
                 resource_kind="case",
                 resource_id=str(case_id),
                 action="view",
                 attributes={"owner_user_id": case_owner, "status": row[1]}
+            )
+            # Log authorization decision (both allowed and denied)
+            log_authorization_decision(
+                user_id=str(current_user.id),
+                user_email=current_user.email,
+                user_roles=user_roles,
+                resource_kind="case",
+                action="view",
+                allowed=allowed,
+                reason=reason,
+                policy=policy
             )
             if not allowed:
                 raise HTTPException(status_code=403, detail=reason or "Not authorized to view this case")
@@ -2482,13 +2614,25 @@ if AML_AVAILABLE:
         """List SARs with optional filtering."""
         # Check authorization
         cerbos_client = get_cerbos_client()
+        user_roles = get_user_roles(db, current_user.id)
         allowed, reason, policy = cerbos_client.check_resource_access(
             user_id=str(current_user.id),
             user_email=current_user.email,
-            user_roles=get_user_roles(db, current_user.id),
+            user_roles=user_roles,
             resource_kind="sar",
             resource_id="*",
             action="view"
+        )
+        # Log authorization decision (both allowed and denied)
+        log_authorization_decision(
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            user_roles=user_roles,
+            resource_kind="sar",
+            action="view",
+            allowed=allowed,
+            reason=reason,
+            policy=policy
         )
         if not allowed:
             raise HTTPException(status_code=403, detail=reason or "Not authorized to view SARs")
@@ -2527,13 +2671,25 @@ if AML_AVAILABLE:
         """Get a specific SAR by ID."""
         # Check authorization
         cerbos_client = get_cerbos_client()
+        user_roles = get_user_roles(db, current_user.id)
         allowed, reason, policy = cerbos_client.check_resource_access(
             user_id=str(current_user.id),
             user_email=current_user.email,
-            user_roles=get_user_roles(db, current_user.id),
+            user_roles=user_roles,
             resource_kind="sar",
             resource_id=str(sar_id),
             action="view"
+        )
+        # Log authorization decision (both allowed and denied)
+        log_authorization_decision(
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            user_roles=user_roles,
+            resource_kind="sar",
+            action="view",
+            allowed=allowed,
+            reason=reason,
+            policy=policy
         )
         if not allowed:
             raise HTTPException(status_code=403, detail=reason or "Not authorized to view this SAR")
@@ -2574,6 +2730,17 @@ if AML_AVAILABLE:
             resource_kind="sar",
             resource_id="new",
             action="draft"
+        )
+        # Log authorization decision (both allowed and denied)
+        log_authorization_decision(
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            user_roles=user_roles,
+            resource_kind="sar",
+            action="draft",
+            allowed=allowed,
+            reason=reason,
+            policy=policy
         )
         if not allowed:
             raise HTTPException(status_code=403, detail=reason or "Not authorized to create SARs")
@@ -2625,6 +2792,17 @@ if AML_AVAILABLE:
             resource_kind="sar",
             resource_id=str(sar_id),
             action="submit"
+        )
+        # Log authorization decision (both allowed and denied)
+        log_authorization_decision(
+            user_id=str(current_user.id),
+            user_email=current_user.email,
+            user_roles=user_roles,
+            resource_kind="sar",
+            action="submit",
+            allowed=allowed,
+            reason=reason,
+            policy=policy
         )
         if not allowed:
             raise HTTPException(status_code=403, detail=reason or "Not authorized to submit this SAR")

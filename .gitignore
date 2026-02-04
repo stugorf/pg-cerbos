@@ -26,6 +26,7 @@ env/
 *.key
 *.pem
 *.cert
+docs/AML_USER_CREDENTIALS.md
 
 # IDE and editor files
 .vscode/
