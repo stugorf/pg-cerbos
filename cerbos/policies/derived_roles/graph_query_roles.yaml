@@ -3,24 +3,26 @@ derivedRoles:
   name: graph_query_roles
   definitions:
     # Junior Analyst: Users with aml_analyst_junior role inherit base aml_analyst permissions
-    # This allows policies to check for either aml_analyst_junior or aml_analyst
+    # This creates the base of the hierarchy chain
     - name: aml_analyst_junior
       parentRoles: ["aml_analyst"]
       condition:
         match:
-          expr: true  # Always applies when user has aml_analyst_junior role
+          expr: "true"
     
-    # Senior Analyst: Users with aml_analyst_senior role inherit base aml_analyst permissions
-    # This allows policies to check for either aml_analyst_senior or aml_analyst
+    # Senior Analyst: Users with aml_analyst_senior role inherit from junior analyst
+    # This creates the chain: aml_analyst → aml_analyst_junior → aml_analyst_senior
+    # Senior analysts automatically get all junior analyst permissions plus their own
     - name: aml_analyst_senior
-      parentRoles: ["aml_analyst"]
+      parentRoles: ["aml_analyst_junior"]
       condition:
         match:
-          expr: true  # Always applies when user has aml_analyst_senior role
+          expr: "true"
     
     # Manager Full: Users with aml_manager_full role inherit base aml_manager permissions
+    # Managers have separate permissions (full access) and don't need to inherit from analysts
     - name: aml_manager_full
       parentRoles: ["aml_manager"]
       condition:
         match:
-          expr: true  # Always applies when user has aml_manager_full role
+          expr: "true"

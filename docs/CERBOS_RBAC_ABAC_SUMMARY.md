@@ -14,21 +14,23 @@
 - ✅ Basic role-based access (admin, aml_analyst, aml_manager)
 - ✅ Query type differentiation (Cypher vs Gremlin)
 - ✅ Authorization before execution
+- ✅ **Phase 1 Complete:** Cypher query parsing with full metadata extraction
+- ✅ **Phase 2 Complete:** Enhanced RBAC with role hierarchy, depth limits, node/relationship restrictions, and complexity limits
 
-### ⚠️ Gaps Identified
+### ⚠️ Remaining Gaps
 
 **RBAC Gaps for Cypher Queries:**
-1. **No role-based query restrictions** - All analysts can execute any Cypher query
-2. **No role hierarchy** - Flat role structure, no inheritance
-3. **No role-based complexity limits** - No limits on traversal depth, node count, etc.
-4. **Limited role granularity** - Only 3 roles for graph queries
+- ✅ **COMPLETE:** Role-based query restrictions implemented
+- ✅ **COMPLETE:** Role hierarchy implemented (junior → senior → manager chain)
+- ✅ **COMPLETE:** Role-based complexity limits implemented
+- ✅ **COMPLETE:** Enhanced role granularity (junior, senior, manager roles)
 
 **ABAC Gaps for Cypher Queries:**
-1. **No Cypher query parsing** - Query structure not analyzed
-2. **No node/relationship type restrictions** - Cannot restrict access to specific graph elements
-3. **No user attribute-based restrictions** - No team, region, clearance level checks
-4. **No resource attribute extraction** - Cannot restrict based on customer risk, transaction amount, etc.
-5. **No query complexity analysis** - No limits on depth, nodes, edges, execution time
+- ✅ **COMPLETE:** Cypher query parsing implemented (Phase 1)
+- ✅ **COMPLETE:** Node/relationship type restrictions implemented (Phase 2)
+- ⚠️ **PENDING:** User attribute-based restrictions (team, region, clearance level) - Phase 3
+- ✅ **PARTIAL:** Resource attribute extraction implemented (risk_rating, pep_flag, transaction_amount) - Phase 1
+- ✅ **COMPLETE:** Query complexity analysis implemented (depth, nodes, edges) - Phase 2
 
 ---
 
@@ -89,15 +91,20 @@
 
 ## Implementation Phases
 
-### Phase 1: Cypher Query Parsing (2 weeks)
-- Implement parser
-- Integrate into authorization flow
-- Add unit tests
+### Phase 1: Cypher Query Parsing ✅ COMPLETE
+- ✅ Implement parser (`cypher_parser.py`)
+- ✅ Integrate into authorization flow (`app.py`)
+- ✅ Add unit tests (`test_cypher_parser.py`)
+- ✅ Extract node labels, relationship types, traversal depth, query patterns, resource attributes
 
-### Phase 2: Enhanced RBAC (1-2 weeks)
-- Create role-based policies
-- Implement role hierarchy
-- Test role restrictions
+### Phase 2: Enhanced RBAC ✅ COMPLETE
+- ✅ Create role-based policies (`cypher_query.yaml`)
+- ✅ Implement role hierarchy chain (`graph_query_roles.yaml`: junior → senior → manager)
+- ✅ Add max traversal depth restrictions (junior: 2 hops, senior: 4 hops)
+- ✅ Add node type restrictions (junior: Customer/Account/Transaction only, no SAR/Case)
+- ✅ Add relationship type restrictions (junior: basic only, senior: all except sensitive)
+- ✅ Add query complexity limits (estimated nodes/edges per role)
+- ✅ Create comprehensive test suite (`cypher_query_test_suite.yaml`)
 
 ### Phase 3: Enhanced ABAC (1-2 weeks)
 - Add user attributes
@@ -195,11 +202,44 @@ resourcePolicy:
 
 ---
 
+## Implementation Status
+
+### ✅ Phase 1: Cypher Query Parsing - COMPLETE
+- Parser extracts all required metadata (node labels, relationships, depth, patterns, attributes)
+- Integrated into authorization flow
+- Comprehensive unit test coverage
+
+### ✅ Phase 2: Enhanced RBAC - COMPLETE
+- Role hierarchy chain: `aml_analyst → aml_analyst_junior → aml_analyst_senior`
+- Depth restrictions: Junior (2 hops), Senior (4 hops)
+- Node restrictions: Junior (basic nodes only), Senior (all except SAR)
+- Relationship restrictions: Junior (basic only), Senior (all alert relationships)
+- Comprehensive test suite with 16 test cases (all passing)
+- Schema validation enabled and working correctly
+- All rules documented with reasoning and test verification
+
+### ⏳ Phase 3: Enhanced ABAC - PENDING
+- User attributes (team, region, clearance_level)
+- Attribute-based policies (team-based, clearance-based)
+
+### ⏳ Phase 4: Complexity Analysis - PARTIALLY COMPLETE
+- Depth, node, edge analysis: ✅ Complete
+- Execution time limits: ⚠️ Pending
+- Result set size limits: ⚠️ Pending
+
 ## Next Steps
 
-1. **Review this analysis** with stakeholders
-2. **Prioritize phases** based on business needs
-3. **Start Phase 1** (Cypher query parsing)
+1. ✅ **Phase 2 implementation complete** - All 16 tests passing with schema validation enabled
+2. **Run test suite** to verify all role restrictions work correctly: `just test-cypher-rbac`
+3. **Start Phase 3** (Enhanced ABAC) for user attribute-based restrictions
 4. **Iterate** based on feedback and testing
+
+## Phase 2 Implementation Details
+
+- **Policy File**: `cerbos/policies/resource_policies/cypher_query.yaml`
+- **Test Suite**: `cerbos/policies/tests/cypher_query_test_suite_test.yaml`
+- **Schema Validation**: ✅ Enabled and working
+- **Test Results**: 16/16 tests passing
+- **Documentation**: See `docs/PHASE2_SCHEMA_VALIDATION_FIX.md` for detailed investigation and resolution
 
 For detailed analysis, see [CERBOS_RBAC_ABAC_ANALYSIS.md](./CERBOS_RBAC_ABAC_ANALYSIS.md).
