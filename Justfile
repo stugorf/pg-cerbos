@@ -108,11 +108,30 @@ test-cerbos-policies:
 test-cypher-rbac:
     @echo "🧪 Running Cypher query RBAC tests (Phase 2)..."
     @if command -v cerbos >/dev/null 2>&1; then \
-        cerbos compile cerbos/policies || echo "❌ Cypher RBAC tests failed"; \
+        cerbos test cerbos/policies/tests/cypher_query_test_suite_test.yaml || echo "❌ Cypher RBAC tests failed"; \
     else \
         echo "⚠️  Cerbos CLI not installed. Install with: brew install cerbos"; \
-        echo "   Or test via Docker: docker run --rm -v $(pwd)/cerbos/policies:/policies ghcr.io/cerbos/cerbos:latest compile /policies"; \
+        echo "   Or test via Docker: docker run --rm -v $(pwd)/cerbos/policies:/policies ghcr.io/cerbos/cerbos:latest test /policies/tests/cypher_query_test_suite_test.yaml"; \
     fi
+
+# Test Cypher query ABAC rules (Phase 3)
+test-cypher-abac:
+    @echo "🧪 Running Cypher query ABAC tests (Phase 3)..."
+    @if command -v cerbos >/dev/null 2>&1; then \
+        cerbos test cerbos/policies/tests/cypher_query_abac_test_suite.yaml || echo "❌ Cypher ABAC tests failed"; \
+    else \
+        echo "⚠️  Cerbos CLI not installed. Install with: brew install cerbos"; \
+        echo "   Or test via Docker: docker run --rm -v $(pwd)/cerbos/policies:/policies ghcr.io/cerbos/cerbos:latest test /policies/tests/cypher_query_abac_test_suite.yaml"; \
+    fi
+
+# Test all Cypher query policies (Phase 2 + Phase 3)
+test-cypher-all:
+    @echo "🧪 Running all Cypher query tests (RBAC + ABAC)..."
+    @just test-cypher-rbac
+    @echo ""
+    @just test-cypher-abac
+    @echo ""
+    @echo "✅ All Cypher query tests complete!"
 
 # Validate AML Cerbos policies
 validate-aml-policies:
@@ -208,6 +227,10 @@ test-auth:
 # Verify system setup and test authentication
 verify:
     bash scripts/verify_setup.sh
+
+# Verify Phase 3 ABAC implementation
+verify-phase3-abac:
+    bash scripts/test-phase3-abac.sh
 
 # Run the demo queries against Postgres (via backend API with Cerbos auth)
 demo-postgres:
@@ -426,6 +449,10 @@ help:
     @echo "  type-check    - Run type checking"
     @echo "  test          - Run tests"
     @echo "  test-cov      - Run tests with coverage"
+    @echo "  test-cypher-rbac - Test Cypher RBAC policies (Phase 2)"
+    @echo "  test-cypher-abac - Test Cypher ABAC policies (Phase 3)"
+    @echo "  test-cypher-all - Test all Cypher policies"
+    @echo "  verify-phase3-abac - Verify Phase 3 ABAC implementation"
     @echo ""
     @echo "Build:"
     @echo "  build         - Build the package"

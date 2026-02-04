@@ -97,6 +97,14 @@
     "status": {
       "type": "string",
       "description": "Status extracted from query filters"
+    },
+    "customer_team": {
+      "type": "string",
+      "description": "Customer team extracted from query filters (Phase 3: ABAC)"
+    },
+    "customer_region": {
+      "type": "string",
+      "description": "Customer region extracted from query filters (Phase 3: ABAC)"
     }
   },
   "required": ["query_type", "query"]

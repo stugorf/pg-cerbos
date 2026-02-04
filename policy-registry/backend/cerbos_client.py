@@ -169,9 +169,15 @@ class CerbosAuthz:
             }
             
             # Add additional principal attributes if provided
+            # Skip None values - they should not be included in attributes
+            # This allows CEL expressions to properly check for null using == null
             if principal_attributes:
                 for key, val in principal_attributes.items():
-                    if isinstance(val, str):
+                    if val is None:
+                        # Skip None values - don't include in attributes
+                        # This allows CEL to properly evaluate P.attr.team == null
+                        continue
+                    elif isinstance(val, str):
                         principal_attr[key] = Value(string_value=val)
                     elif isinstance(val, bool):
                         principal_attr[key] = Value(bool_value=val)
@@ -188,10 +194,16 @@ class CerbosAuthz:
             )
             
             # Create resource using gRPC protobuf format
+            # Skip None values - they should not be included in attributes
+            # This allows CEL expressions to properly check for null using == null
             resource_attr = attributes or {}
             resource_dict = {}
             for key, val in resource_attr.items():
-                if isinstance(val, str):
+                if val is None:
+                    # Skip None values - don't include in attributes
+                    # This allows CEL to properly evaluate R.attr.customer_team == null
+                    continue
+                elif isinstance(val, str):
                     resource_dict[key] = Value(string_value=val)
                 elif isinstance(val, bool):
                     resource_dict[key] = Value(bool_value=val)
