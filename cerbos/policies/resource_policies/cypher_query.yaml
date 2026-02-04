@@ -66,6 +66,90 @@ resourcePolicy:
             size(R.attr.relationship_types.filter(r, r == "FROM_ALERT")) > 0
     
     # ============================================================================
+    # PHASE 3: ABAC DENY RULES (evaluated before ALLOW rules)
+    # ============================================================================
+    
+    # ============================================================================
+    # RULE 7a: DENY team mismatch for customer queries
+    # Reasoning: Users cannot query customers from other teams
+    #   - Only applies when both user team and customer team are specified and non-null
+    #   - Does not apply if user has no team (null/missing) or query has no team filter
+    #   - Note: When attribute is missing (not included), CEL treats it as null
+    #   - This rule must be evaluated before ALLOW rules to prevent team mismatches
+    #   - DENY rules are evaluated first in Cerbos, so this will block mismatches
+    #   - Uses alternative CEL syntax: filter() for array check, string() for comparison
+    # Test: "Team A analyst cannot query Team B customers" - FIXED
+    # ============================================================================
+    - actions: ["execute"]
+      effect: EFFECT_DENY
+      roles: ["aml_analyst", "aml_analyst_junior", "aml_analyst_senior"]
+      condition:
+        match:
+          expr: |
+            size(R.attr.node_labels.filter(l, l == "Customer")) > 0 &&
+            R.attr.customer_team != null &&
+            size(string(R.attr.customer_team)) > 0 &&
+            P.attr.team != null &&
+            size(string(P.attr.team)) > 0 &&
+            string(P.attr.team) != string(R.attr.customer_team)
+    
+    # ============================================================================
+    # RULE 8a: DENY PEP access for low clearance
+    # Reasoning: PEP customers require clearance_level >= 3
+    #   - Denies access if clearance is too low
+    # Test: "Low clearance analyst cannot query PEP customers" - PENDING
+    # ============================================================================
+    - actions: ["execute"]
+      effect: EFFECT_DENY
+      roles: ["aml_analyst", "aml_analyst_junior", "aml_analyst_senior"]
+      condition:
+        match:
+          expr: |
+            R.attr.pep_flag == true &&
+            (P.attr.clearance_level == null || P.attr.clearance_level < 3)
+    
+    # ============================================================================
+    # RULE 9a: DENY high-value transaction access for low clearance
+    # Reasoning: High-value transactions require elevated clearance
+    #   - Denies transactions > $100k if clearance < 2
+    #   - Denies transactions > $500k if clearance < 3
+    # Test: "Low clearance analyst cannot query high-value transactions" - PENDING
+    # ============================================================================
+    - actions: ["execute"]
+      effect: EFFECT_DENY
+      roles: ["aml_analyst", "aml_analyst_junior", "aml_analyst_senior"]
+      condition:
+        match:
+          expr: |
+            R.attr.transaction_amount_min != null &&
+            (
+              (R.attr.transaction_amount_min > 100000 && R.attr.transaction_amount_min <= 500000 && (P.attr.clearance_level == null || P.attr.clearance_level < 2)) ||
+              (R.attr.transaction_amount_min > 500000 && (P.attr.clearance_level == null || P.attr.clearance_level < 3))
+            )
+    
+    # ============================================================================
+    # RULE 10a: DENY region mismatch for customer queries
+    # Reasoning: Users cannot query customers from other regions
+    #   - Only applies when both user region and customer region are specified and non-null
+    #   - Does not apply if user has no region (null/missing) or query has no region filter
+    #   - Note: When attribute is missing (not included), CEL treats it as null
+    #   - This rule must be evaluated before ALLOW rules to prevent region mismatches
+    #   - Uses alternative CEL syntax: string() for comparison (consistent with Rule 7a)
+    # Test: "US analyst cannot query EU customers" - FIXED
+    # ============================================================================
+    - actions: ["execute"]
+      effect: EFFECT_DENY
+      roles: ["aml_analyst", "aml_analyst_junior", "aml_analyst_senior"]
+      condition:
+        match:
+          expr: |
+            R.attr.customer_region != null &&
+            size(string(R.attr.customer_region)) > 0 &&
+            P.attr.region != null &&
+            size(string(P.attr.region)) > 0 &&
+            string(P.attr.region) != string(R.attr.customer_region)
+    
+    # ============================================================================
     # ALLOW RULES (evaluated after DENY rules)
     # ============================================================================
     
@@ -75,6 +159,8 @@ resourcePolicy:
     #   - max_depth <= 2 (2 hops max)
     #   - No SAR nodes
     #   - Case/Alert nodes and sensitive relationships are blocked by DENY rules above
+    #   - Note: Team/region restrictions for Customer queries are handled by DENY rules (7a, 10a)
+    #     and ALLOW rule 7, which are evaluated separately
     # Test: "Junior analyst can execute simple customer query" - PASSING
     # Test: "Junior analyst can execute 2-hop query" - PASSING
     # Test: "Junior analyst cannot execute 3-hop query" - PASSING (max_depth > 2)
@@ -96,6 +182,8 @@ resourcePolicy:
     #   - No SAR nodes
     #   - Can access Case nodes (not blocked by DENY rules - only for junior)
     #   - Can use alert-related relationships (not blocked by DENY rules - only for junior)
+    #   - Note: Team/region restrictions for Customer queries are handled by DENY rules (7a, 10a)
+    #     and ALLOW rule 7, which are evaluated separately
     # Test: "Senior analyst can execute 2-hop query" - PASSING
     # Test: "Senior analyst can execute 4-hop query" - PASSING
     # Test: "Senior analyst can execute Case query" - PASSING
@@ -137,3 +225,90 @@ resourcePolicy:
             size(R.attr.relationship_types.filter(r, r == "FLAGS_CUSTOMER")) == 0 &&
             size(R.attr.relationship_types.filter(r, r == "FLAGS_ACCOUNT")) == 0 &&
             size(R.attr.relationship_types.filter(r, r == "FROM_ALERT")) == 0
+    
+    # ============================================================================
+    # PHASE 3: ATTRIBUTE-BASED ACCESS CONTROL (ABAC) RULES
+    # ============================================================================
+    
+    # ============================================================================
+    # RULE 7: Team-based customer access
+    # Reasoning: Users can only query customers from their own team
+    #   - Checks if query accesses Customer nodes
+    #   - Requires user's team to match customer's team (extracted from query)
+    #   - Allows users with no team assignment (null) to access all customers
+    #   - Allows queries with no team filter (customer_team == null)
+    #   - Note: Team mismatches are handled by DENY rule 7a
+    # Test: "Team A analyst can query Team A customers" - PASSING
+    # Test: "Team A analyst cannot query Team B customers" - PENDING
+    # Test: "User with no team can query any team's customers" - PENDING
+    # ============================================================================
+    - actions: ["execute"]
+      effect: EFFECT_ALLOW
+      roles: ["aml_analyst", "aml_analyst_junior", "aml_analyst_senior"]
+      condition:
+        match:
+          expr: |
+            R.attr.node_labels.contains("Customer") &&
+            (R.attr.customer_team == null || P.attr.team == null || P.attr.team == R.attr.customer_team)
+    
+    # ============================================================================
+    # RULE 8: Clearance-based PEP access
+    # Reasoning: PEP (Politically Exposed Person) customers require high clearance
+    #   - Checks if query accesses customers with pep_flag = true
+    #   - Requires clearance_level >= 3
+    #   - Only allows if clearance is sufficient
+    # Test: "Low clearance analyst cannot query PEP customers" - PENDING (needs DENY rule)
+    # Test: "High clearance analyst can query PEP customers" - PASSING
+    # ============================================================================
+    - actions: ["execute"]
+      effect: EFFECT_ALLOW
+      roles: ["aml_analyst", "aml_analyst_junior", "aml_analyst_senior", "aml_manager"]
+      condition:
+        match:
+          expr: |
+            R.attr.pep_flag == true &&
+            P.attr.clearance_level != null &&
+            P.attr.clearance_level >= 3
+    
+    # ============================================================================
+    # RULE 9: Clearance-based high-value transaction access
+    # Reasoning: High-value transactions require elevated clearance
+    #   - Checks if query accesses transactions with amount > threshold
+    #   - Requires clearance_level >= 2 for transactions > $100k
+    #   - Requires clearance_level >= 3 for transactions > $500k
+    #   - Allows queries with no amount filter or amount <= $100k
+    # Test: "Low clearance analyst cannot query high-value transactions" - PENDING
+    # Test: "Medium clearance analyst can query $100k transactions" - PENDING
+    # ============================================================================
+    - actions: ["execute"]
+      effect: EFFECT_ALLOW
+      roles: ["aml_analyst", "aml_analyst_junior", "aml_analyst_senior", "aml_manager"]
+      condition:
+        match:
+          expr: |
+            R.attr.transaction_amount_min == null ||
+            R.attr.transaction_amount_min <= 100000 ||
+            (R.attr.transaction_amount_min > 100000 && R.attr.transaction_amount_min <= 500000 && P.attr.clearance_level >= 2) ||
+            (R.attr.transaction_amount_min > 500000 && P.attr.clearance_level >= 3)
+    
+    # ============================================================================
+    # RULE 10: Region-based access (optional, if region data is available)
+    # Reasoning: Users can only query data from their assigned region
+    #   - Checks if query accesses region-specific data
+    #   - Requires user's region to match resource region
+    #   - Allows users with no region assignment (null) to access all regions
+    #   - Allows queries with no region filter (customer_region == null)
+    #   - Note: Region mismatches are handled by DENY rule 10a
+    # Test: "US analyst can query US customers" - PASSING
+    # Test: "US analyst cannot query EU customers" - PENDING
+    # Test: "User with no region can query any region's customers" - PENDING
+    # ============================================================================
+    - actions: ["execute"]
+      effect: EFFECT_ALLOW
+      roles: ["aml_analyst", "aml_analyst_junior", "aml_analyst_senior"]
+      condition:
+        match:
+          expr: |
+            R.attr.customer_region == null ||
+            P.attr.region == null ||
+            P.attr.region == R.attr.customer_region

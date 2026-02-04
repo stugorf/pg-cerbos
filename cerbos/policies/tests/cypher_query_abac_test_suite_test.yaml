@@ -1,0 +1,388 @@
+---
+name: "Cypher Query ABAC Test Suite"
+description: "Tests for attribute-based access control rules (Phase 3: Enhanced ABAC)"
+
+principals:
+  analyst_team_a:
+    id: "5"
+    roles: ["aml_analyst_junior"]
+    attr:
+      email: "analyst.junior@pg-cerbos.com"
+      team: "Team A"
+      clearance_level: 1
+      region: "US"
+      is_active: true
+  
+  analyst_team_b:
+    id: "6"
+    roles: ["aml_analyst_senior"]
+    attr:
+      email: "analyst.senior@pg-cerbos.com"
+      team: "Team B"
+      clearance_level: 2
+      region: "EU"
+      is_active: true
+  
+  analyst_no_team:
+    id: "7"
+    roles: ["aml_analyst_junior"]
+    attr:
+      email: "analyst@pg-cerbos.com"
+      # team attribute omitted (matches runtime behavior - missing, not null)
+      clearance_level: 1
+      region: "US"
+      is_active: true
+  
+  analyst_low_clearance:
+    id: "5"
+    roles: ["aml_analyst_junior"]
+    attr:
+      email: "analyst.junior@pg-cerbos.com"
+      team: "Team A"
+      clearance_level: 1
+      region: "US"
+      is_active: true
+  
+  analyst_medium_clearance:
+    id: "6"
+    roles: ["aml_analyst_senior"]
+    attr:
+      email: "analyst.senior@pg-cerbos.com"
+      team: "Team A"
+      clearance_level: 2
+      region: "US"
+      is_active: true
+  
+  analyst_high_clearance:
+    id: "9"
+    roles: ["aml_analyst_senior"]
+    attr:
+      email: "analyst.team_a.high@pg-cerbos.com"
+      team: "Team A"
+      clearance_level: 3
+      region: "US"
+      is_active: true
+  
+  analyst_us:
+    id: "5"
+    roles: ["aml_analyst_junior"]
+    attr:
+      email: "analyst.junior@pg-cerbos.com"
+      team: "Team A"
+      clearance_level: 1
+      region: "US"
+      is_active: true
+  
+  analyst_no_region:
+    id: "7"
+    roles: ["aml_analyst_junior"]
+    attr:
+      email: "analyst@pg-cerbos.com"
+      # team attribute omitted (matches runtime behavior - missing, not null)
+      clearance_level: 1
+      # region attribute omitted (matches runtime behavior - missing, not null)
+      is_active: true
+
+resources:
+  team_a_customer_query:
+    kind: "cypher_query"
+    id: "query-abac-001"
+    attr:
+      query_type: "cypher"
+      query: "MATCH (c:Customer {team: 'Team A'}) RETURN c"
+      node_labels: ["Customer"]
+      relationship_types: []
+      max_depth: 1
+      customer_team: "Team A"
+  
+  team_b_customer_query:
+    kind: "cypher_query"
+    id: "query-abac-002"
+    attr:
+      query_type: "cypher"
+      query: "MATCH (c:Customer {team: 'Team B'}) RETURN c"
+      node_labels: ["Customer"]
+      relationship_types: []
+      max_depth: 1
+      customer_team: "Team B"
+  
+  pep_customer_query:
+    kind: "cypher_query"
+    id: "query-abac-003"
+    attr:
+      query_type: "cypher"
+      query: "MATCH (c:Customer {pep_flag: true}) RETURN c"
+      node_labels: ["Customer"]
+      relationship_types: []
+      max_depth: 1
+      pep_flag: true
+  
+  low_value_transaction_query:
+    kind: "cypher_query"
+    id: "query-abac-004"
+    attr:
+      query_type: "cypher"
+      query: "MATCH (t:Transaction) WHERE t.amount > 50000 RETURN t"
+      node_labels: ["Transaction"]
+      relationship_types: []
+      max_depth: 1
+      transaction_amount_min: 50000
+  
+  high_value_transaction_query:
+    kind: "cypher_query"
+    id: "query-abac-005"
+    attr:
+      query_type: "cypher"
+      query: "MATCH (t:Transaction) WHERE t.amount > 200000 RETURN t"
+      node_labels: ["Transaction"]
+      relationship_types: []
+      max_depth: 1
+      transaction_amount_min: 200000
+  
+  medium_value_transaction_query:
+    kind: "cypher_query"
+    id: "query-abac-006"
+    attr:
+      query_type: "cypher"
+      query: "MATCH (t:Transaction) WHERE t.amount > 150000 RETURN t"
+      node_labels: ["Transaction"]
+      relationship_types: []
+      max_depth: 1
+      transaction_amount_min: 150000
+  
+  very_high_value_transaction_query:
+    kind: "cypher_query"
+    id: "query-abac-007"
+    attr:
+      query_type: "cypher"
+      query: "MATCH (t:Transaction) WHERE t.amount > 600000 RETURN t"
+      node_labels: ["Transaction"]
+      relationship_types: []
+      max_depth: 1
+      transaction_amount_min: 600000
+  
+  us_customer_query:
+    kind: "cypher_query"
+    id: "query-abac-008"
+    attr:
+      query_type: "cypher"
+      query: "MATCH (c:Customer {region: 'US'}) RETURN c"
+      node_labels: ["Customer"]
+      relationship_types: []
+      max_depth: 1
+      customer_region: "US"
+  
+  eu_customer_query:
+    kind: "cypher_query"
+    id: "query-abac-009"
+    attr:
+      query_type: "cypher"
+      query: "MATCH (c:Customer {region: 'EU'}) RETURN c"
+      node_labels: ["Customer"]
+      relationship_types: []
+      max_depth: 1
+      customer_region: "EU"
+  
+  team_a_pep_query:
+    kind: "cypher_query"
+    id: "query-abac-010"
+    attr:
+      query_type: "cypher"
+      query: "MATCH (c:Customer {team: 'Team A', pep_flag: true}) RETURN c"
+      node_labels: ["Customer"]
+      relationship_types: []
+      max_depth: 1
+      customer_team: "Team A"
+      pep_flag: true
+
+tests:
+  # ============================================================================
+  # Team-based access tests
+  # ============================================================================
+  - name: "Team A analyst can query Team A customers"
+    input:
+      principals: ["analyst_team_a"]
+      resources: ["team_a_customer_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_team_a
+        resource: team_a_customer_query
+        actions:
+          execute: EFFECT_ALLOW
+  
+  - name: "Team A analyst cannot query Team B customers"
+    input:
+      principals: ["analyst_team_a"]
+      resources: ["team_b_customer_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_team_a
+        resource: team_b_customer_query
+        actions:
+          execute: EFFECT_DENY
+  
+  - name: "User with no team can query any team's customers"
+    input:
+      principals: ["analyst_no_team"]
+      resources: ["team_a_customer_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_no_team
+        resource: team_a_customer_query
+        actions:
+          execute: EFFECT_ALLOW
+  
+  # ============================================================================
+  # Clearance-based PEP access tests
+  # ============================================================================
+  - name: "Low clearance analyst cannot query PEP customers"
+    input:
+      principals: ["analyst_low_clearance"]
+      resources: ["pep_customer_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_low_clearance
+        resource: pep_customer_query
+        actions:
+          execute: EFFECT_DENY
+  
+  - name: "High clearance analyst can query PEP customers"
+    input:
+      principals: ["analyst_high_clearance"]
+      resources: ["pep_customer_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_high_clearance
+        resource: pep_customer_query
+        actions:
+          execute: EFFECT_ALLOW
+  
+  - name: "Medium clearance analyst cannot query PEP customers"
+    input:
+      principals: ["analyst_medium_clearance"]
+      resources: ["pep_customer_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_medium_clearance
+        resource: pep_customer_query
+        actions:
+          execute: EFFECT_DENY
+  
+  # ============================================================================
+  # Clearance-based transaction amount tests
+  # ============================================================================
+  - name: "Low clearance analyst can query transactions <= $100k"
+    input:
+      principals: ["analyst_low_clearance"]
+      resources: ["low_value_transaction_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_low_clearance
+        resource: low_value_transaction_query
+        actions:
+          execute: EFFECT_ALLOW
+  
+  - name: "Low clearance analyst cannot query transactions > $100k"
+    input:
+      principals: ["analyst_low_clearance"]
+      resources: ["high_value_transaction_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_low_clearance
+        resource: high_value_transaction_query
+        actions:
+          execute: EFFECT_DENY
+  
+  - name: "Medium clearance analyst can query transactions <= $500k"
+    input:
+      principals: ["analyst_medium_clearance"]
+      resources: ["medium_value_transaction_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_medium_clearance
+        resource: medium_value_transaction_query
+        actions:
+          execute: EFFECT_ALLOW
+  
+  - name: "Medium clearance analyst cannot query transactions > $500k"
+    input:
+      principals: ["analyst_medium_clearance"]
+      resources: ["very_high_value_transaction_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_medium_clearance
+        resource: very_high_value_transaction_query
+        actions:
+          execute: EFFECT_DENY
+  
+  - name: "High clearance analyst can query transactions > $500k"
+    input:
+      principals: ["analyst_high_clearance"]
+      resources: ["very_high_value_transaction_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_high_clearance
+        resource: very_high_value_transaction_query
+        actions:
+          execute: EFFECT_ALLOW
+  
+  # ============================================================================
+  # Region-based access tests
+  # ============================================================================
+  - name: "US analyst can query US customers"
+    input:
+      principals: ["analyst_us"]
+      resources: ["us_customer_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_us
+        resource: us_customer_query
+        actions:
+          execute: EFFECT_ALLOW
+  
+  - name: "US analyst cannot query EU customers"
+    input:
+      principals: ["analyst_us"]
+      resources: ["eu_customer_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_us
+        resource: eu_customer_query
+        actions:
+          execute: EFFECT_DENY
+  
+  - name: "User with no region can query any region's customers"
+    input:
+      principals: ["analyst_no_region"]
+      resources: ["eu_customer_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_no_region
+        resource: eu_customer_query
+        actions:
+          execute: EFFECT_ALLOW
+  
+  # ============================================================================
+  # Combined ABAC + RBAC tests
+  # ============================================================================
+  - name: "Team A analyst with high clearance can query Team A PEP customers"
+    input:
+      principals: ["analyst_high_clearance"]
+      resources: ["team_a_pep_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_high_clearance
+        resource: team_a_pep_query
+        actions:
+          execute: EFFECT_ALLOW
+  
+  - name: "Team A analyst with low clearance cannot query Team A PEP customers"
+    input:
+      principals: ["analyst_low_clearance"]
+      resources: ["team_a_pep_query"]
+      actions: ["execute"]
+    expected:
+      - principal: analyst_low_clearance
+        resource: team_a_pep_query
+        actions:
+          execute: EFFECT_DENY

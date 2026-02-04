@@ -318,6 +318,8 @@ def extract_resource_attributes(query: str) -> Dict[str, Any]:
         - pep_flag (from Customer nodes)
         - status (from Case/Alert nodes)
         - severity (from Alert nodes)
+        - customer_team (from Customer nodes) - Phase 3: ABAC
+        - customer_region (from Customer nodes) - Phase 3: ABAC
     
     Args:
         query: Cypher query string
@@ -371,6 +373,18 @@ def extract_resource_attributes(query: str) -> Dict[str, Any]:
         status_match = re.search(r'(?:\.)?status\s*[=<>!]+\s*[\'"]?([^\'"\s,]+)[\'"]?', where_clause, re.IGNORECASE)
         if status_match:
             attributes["status"] = status_match.group(1).strip("'\"")
+        
+        # Extract customer_team from WHERE clauses - Phase 3: ABAC
+        # Handles: c.team = 'Team A', customer.team = 'Team B', team = 'Team C'
+        team_match = re.search(r'(?:[a-zA-Z_][a-zA-Z0-9_]*\.)?team\s*[=<>!]+\s*[\'"]?([^\'"\s,]+)[\'"]?', where_clause, re.IGNORECASE)
+        if team_match:
+            attributes["customer_team"] = team_match.group(1).strip("'\"")
+        
+        # Extract customer_region from WHERE clauses - Phase 3: ABAC
+        # Handles: c.region = 'US', customer.region = 'EU', region = 'APAC'
+        region_match = re.search(r'(?:[a-zA-Z_][a-zA-Z0-9_]*\.)?region\s*[=<>!]+\s*[\'"]?([^\'"\s,]+)[\'"]?', where_clause, re.IGNORECASE)
+        if region_match:
+            attributes["customer_region"] = region_match.group(1).strip("'\"")
     
     # Also check node property patterns: {property: value}
     node_prop_pattern = r'\{([^}]+)\}'
@@ -386,6 +400,18 @@ def extract_resource_attributes(query: str) -> Dict[str, Any]:
         risk_prop_match = re.search(r'risk_rating\s*:\s*[\'"]?([^\'"\s,}]+)[\'"]?', props, re.IGNORECASE)
         if risk_prop_match:
             attributes["risk_rating"] = risk_prop_match.group(1).strip("'\"")
+        
+        # Extract customer_team from node properties - Phase 3: ABAC
+        # Handles: {team: 'Team A'}, Customer {team: 'Team B'}
+        team_prop_match = re.search(r'team\s*:\s*[\'"]?([^\'"\s,}]+)[\'"]?', props, re.IGNORECASE)
+        if team_prop_match:
+            attributes["customer_team"] = team_prop_match.group(1).strip("'\"")
+        
+        # Extract customer_region from node properties - Phase 3: ABAC
+        # Handles: {region: 'US'}, Customer {region: 'EU'}
+        region_prop_match = re.search(r'region\s*:\s*[\'"]?([^\'"\s,}]+)[\'"]?', props, re.IGNORECASE)
+        if region_prop_match:
+            attributes["customer_region"] = region_prop_match.group(1).strip("'\"")
     
     return attributes
 

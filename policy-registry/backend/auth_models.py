@@ -74,6 +74,24 @@ class Permission(Base):
     def __repr__(self):
         return f"<Permission(id={self.id}, name='{self.name}', resource_type='{self.resource_type}')>"
 
+class UserAttributes(Base):
+    """User attributes for Phase 3: Enhanced ABAC"""
+    __tablename__ = "user_attributes"
+    
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), primary_key=True)
+    team = Column(String(100), nullable=True)
+    region = Column(String(100), nullable=True)
+    clearance_level = Column(Integer, default=1, nullable=True)
+    department = Column(String(100), nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=text('now()'))
+    updated_at = Column(TIMESTAMP(timezone=True), server_default=text('now()'))
+    
+    # Relationship
+    user = relationship("User", backref="attributes")
+    
+    def __repr__(self):
+        return f"<UserAttributes(user_id={self.user_id}, team='{self.team}', clearance={self.clearance_level})>"
+
 # Pydantic models for API requests/responses
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
@@ -137,4 +155,25 @@ class LoginResponse(BaseModel):
 
 class TokenData(BaseModel):
     email: Optional[str] = None
-    user_id: Optional[int] = None 
+    user_id: Optional[int] = None
+
+class UserAttributesCreate(BaseModel):
+    team: Optional[str] = None
+    region: Optional[str] = None
+    clearance_level: Optional[int] = 1
+    department: Optional[str] = None
+
+class UserAttributesUpdate(BaseModel):
+    team: Optional[str] = None
+    region: Optional[str] = None
+    clearance_level: Optional[int] = None
+    department: Optional[str] = None
+
+class UserAttributesResponse(BaseModel):
+    user_id: int
+    team: Optional[str]
+    region: Optional[str]
+    clearance_level: Optional[int]
+    department: Optional[str]
+    created_at: datetime
+    updated_at: datetime

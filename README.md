@@ -351,7 +351,9 @@ The system provides **three approaches** for handling unauthorized field access:
 ## 🚀 Quickstart
 
 ### For New Developers
-See [DEVELOPER_SETUP.md](DEVELOPER_SETUP.md) for a comprehensive setup guide.
+- **[QUICK_START_GUIDE.md](docs/QUICK_START_GUIDE.md)** - Quick start guide
+- **[DEVELOPER_SETUP.md](DEVELOPER_SETUP.md)** - Comprehensive setup guide
+- **[DOCUMENTATION_INDEX.md](docs/DOCUMENTATION_INDEX.md)** - Complete documentation index
 
 ### Quick Setup
 ```bash
@@ -578,7 +580,8 @@ g.V().hasLabel('Alert').has('alert_id', 1)
 **Note**: The Graph Query tab in the main UI routes queries through the backend API (`/query/graph`), which enforces Cerbos authorization before sending to PuppyGraph. This ensures all graph queries are properly authorized.
 
 For more examples, see [AML Cypher Examples](docs/AML_CYPHER_EXAMPLES.md).  
-For setup details, see [AML PoC Quick Start Guide](docs/AML_POC_QUICKSTART.md).
+For setup details, see [AML PoC Quick Start Guide](docs/AML_POC_QUICKSTART.md).  
+For complete documentation, see [Documentation Index](docs/DOCUMENTATION_INDEX.md).
 
 ## 🔧 Troubleshooting
 

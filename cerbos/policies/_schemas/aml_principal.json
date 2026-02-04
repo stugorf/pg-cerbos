@@ -13,6 +13,20 @@
       "type": "string",
       "description": "User's team assignment (e.g., 'Team A', 'Team B')"
     },
+    "region": {
+      "type": "string",
+      "description": "User's region assignment (e.g., 'US', 'EU', 'APAC')"
+    },
+    "clearance_level": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5,
+      "description": "User's security clearance level (1=lowest, 5=highest)"
+    },
+    "department": {
+      "type": "string",
+      "description": "User's department (e.g., 'AML', 'IT', 'Compliance')"
+    },
     "is_active": {
       "type": "boolean",
       "description": "Whether the user account is active"

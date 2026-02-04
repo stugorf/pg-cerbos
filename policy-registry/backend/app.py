@@ -12,11 +12,12 @@ from models import Policy
 from auth_models import User, Role, Permission, Base
 from auth_utils import (
     authenticate_user, create_access_token, verify_token, 
-    get_password_hash, check_permission, is_admin, get_user_roles
+    get_password_hash, check_permission, is_admin, get_user_roles, get_user_attributes
 )
 from auth_models import (
     UserCreate, UserUpdate, UserResponse, RoleCreate, RoleResponse,
-    PermissionCreate, PermissionResponse, LoginRequest, LoginResponse
+    PermissionCreate, PermissionResponse, LoginRequest, LoginResponse,
+    UserAttributesCreate, UserAttributesUpdate, UserAttributesResponse
 )
 from query_models import Query, QueryColumn, QueryResult, QueryStat, QueryCreate, QueryResponse, QueryResultResponse
 from query_db import get_query_db, get_query_db_sync, init_query_database
@@ -423,6 +424,111 @@ def update_user(user_id: int, user_data: UserUpdate, current_user: User = Depend
     db.commit()
     return {"message": "User updated successfully"}
 
+# User Attributes management endpoints (Phase 3: ABAC)
+@API.get("/users/{user_id}/attributes", response_model=UserAttributesResponse)
+def get_user_attributes_endpoint(
+    user_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get user attributes."""
+    # Only allow users to view their own attributes, or admins to view any
+    if current_user.id != user_id and not is_admin(db, current_user.id):
+        raise HTTPException(status_code=403, detail="Not authorized to view this user's attributes")
+    
+    from auth_models import UserAttributes
+    user_attrs = db.query(UserAttributes).filter(UserAttributes.user_id == user_id).first()
+    
+    if not user_attrs:
+        raise HTTPException(status_code=404, detail="User attributes not found")
+    
+    return UserAttributesResponse(
+        user_id=user_attrs.user_id,
+        team=user_attrs.team,
+        region=user_attrs.region,
+        clearance_level=user_attrs.clearance_level,
+        department=user_attrs.department,
+        created_at=user_attrs.created_at,
+        updated_at=user_attrs.updated_at
+    )
+
+@API.put("/users/{user_id}/attributes", response_model=UserAttributesResponse)
+def update_user_attributes_endpoint(
+    user_id: int,
+    attributes_update: UserAttributesUpdate,
+    current_user: User = Depends(get_current_admin_user),  # Only admins can update
+    db: Session = Depends(get_db)
+):
+    """Update user attributes (admin only)."""
+    from auth_models import UserAttributes
+    
+    user_attrs = db.query(UserAttributes).filter(UserAttributes.user_id == user_id).first()
+    
+    if not user_attrs:
+        # Create if doesn't exist
+        user_attrs = UserAttributes(user_id=user_id)
+        db.add(user_attrs)
+    
+    # Update fields
+    update_data = attributes_update.dict(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(user_attrs, key, value)
+    
+    db.commit()
+    db.refresh(user_attrs)
+    
+    return UserAttributesResponse(
+        user_id=user_attrs.user_id,
+        team=user_attrs.team,
+        region=user_attrs.region,
+        clearance_level=user_attrs.clearance_level,
+        department=user_attrs.department,
+        created_at=user_attrs.created_at,
+        updated_at=user_attrs.updated_at
+    )
+
+@API.post("/users/{user_id}/attributes", response_model=UserAttributesResponse)
+def create_user_attributes_endpoint(
+    user_id: int,
+    attributes_create: UserAttributesCreate,
+    current_user: User = Depends(get_current_admin_user),  # Only admins can create
+    db: Session = Depends(get_db)
+):
+    """Create user attributes (admin only)."""
+    from auth_models import UserAttributes
+    
+    # Check if attributes already exist
+    existing = db.query(UserAttributes).filter(UserAttributes.user_id == user_id).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="User attributes already exist. Use PUT to update.")
+    
+    # Verify user exists
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Create new attributes
+    user_attrs = UserAttributes(
+        user_id=user_id,
+        team=attributes_create.team,
+        region=attributes_create.region,
+        clearance_level=attributes_create.clearance_level or 1,
+        department=attributes_create.department
+    )
+    db.add(user_attrs)
+    db.commit()
+    db.refresh(user_attrs)
+    
+    return UserAttributesResponse(
+        user_id=user_attrs.user_id,
+        team=user_attrs.team,
+        region=user_attrs.region,
+        clearance_level=user_attrs.clearance_level,
+        department=user_attrs.department,
+        created_at=user_attrs.created_at,
+        updated_at=user_attrs.updated_at
+    )
+
 # Role management endpoints (admin only)
 @API.post("/roles", response_model=RoleResponse)
 def create_role(role_data: RoleCreate, current_user: User = Depends(get_current_admin_user), db: Session = Depends(get_db)):
@@ -688,6 +794,9 @@ def execute_graph_query(
     cerbos_client = get_cerbos_client()
     user_roles = get_user_roles(db, current_user.id)
     
+    # Get user attributes for ABAC (Phase 3)
+    user_attributes = get_user_attributes(db, current_user.id)
+    
     # Build resource attributes for Cerbos
     cerbos_attributes = {
         "query_type": query_type,
@@ -708,7 +817,8 @@ def execute_graph_query(
         resource_kind=resource_kind,
         resource_id="graph-query",
         action=action,
-        attributes=cerbos_attributes
+        attributes=cerbos_attributes,
+        principal_attributes=user_attributes  # Phase 3: Pass user attributes for ABAC
     )
     
     if not allowed:

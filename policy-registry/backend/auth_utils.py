@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
-from auth_models import User, Role, Permission, TokenData
+from auth_models import User, Role, Permission, TokenData, UserAttributes
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -133,4 +133,36 @@ def can_access_field(db: Session, user_id: int, field_name: str) -> bool:
 def is_admin(db: Session, user_id: int) -> bool:
     """Check if user has admin role."""
     roles = get_user_roles(db, user_id)
-    return "admin" in roles 
+    return "admin" in roles
+
+def get_user_attributes(db: Session, user_id: int) -> dict:
+    """
+    Get user attributes for Cerbos principal.
+    
+    Args:
+        db: Database session
+        user_id: User ID
+        
+    Returns:
+        Dictionary of user attributes (team, region, clearance_level, department, is_active)
+        Returns dict with defaults if user has no attributes record
+    """
+    user_attrs = db.query(UserAttributes).filter(UserAttributes.user_id == user_id).first()
+    
+    if user_attrs:
+        return {
+            "team": user_attrs.team,
+            "region": user_attrs.region,
+            "clearance_level": user_attrs.clearance_level or 1,
+            "department": user_attrs.department,
+            "is_active": True  # Can be derived from User model if needed
+        }
+    else:
+        # Return defaults if no attributes record exists
+        return {
+            "team": None,
+            "region": None,
+            "clearance_level": 1,
+            "department": None,
+            "is_active": True
+        }
