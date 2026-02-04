@@ -1008,6 +1008,123 @@ This removes all containers and volumes for a completely clean slate.
 6. **Query Execution**: If allowed, query is forwarded to Trino
 7. **Audit Logging**: All authorization decisions are logged for compliance and visible in the Cerbos Logs tab
 
+### Cerbos Metadata for RBAC/ABAC
+
+The system passes rich metadata to Cerbos to enable fine-grained Role-Based Access Control (RBAC) and Attribute-Based Access Control (ABAC). This metadata allows Cerbos policies to make authorization decisions based on both user attributes and query characteristics.
+
+#### Principal Attributes (User Context)
+
+For every authorization check, the following principal attributes are passed to Cerbos:
+
+**Standard Attributes:**
+- `id`: User identifier (from JWT)
+- `roles`: List of user roles (e.g., `["admin"]`, `["full_access_user"]`, `["aml_analyst"]`)
+- `attr.email`: User email address
+
+**Optional Additional Attributes:**
+The system supports passing additional principal attributes for enhanced ABAC:
+- `team`: User's team assignment (e.g., "Team A", "Team B")
+- `region`: User's geographic region
+- `clearance_level`: Security clearance level (numeric)
+- `department`: User's department
+
+These additional attributes can be added to the principal when calling `check_resource_access()` via the `principal_attributes` parameter.
+
+#### Resource Attributes for SQL Queries
+
+For SQL queries (Postgres/Iceberg), the following resource attributes are passed:
+
+```python
+{
+    "method": "POST",                    # HTTP method
+    "path": "/v1/statement",             # Request path
+    "body": "SELECT * FROM ...",         # Full SQL query text
+    "catalog": "postgres" | "iceberg"    # Data source catalog
+}
+```
+
+**Usage in Policies:**
+- Policies can inspect the `body` attribute to detect restricted fields (e.g., SSN)
+- The `catalog` attribute enables catalog-specific access rules
+- Policies can parse query content to enforce field-level restrictions
+
+#### Resource Attributes for Graph Queries (Cypher)
+
+For Cypher graph queries, the system parses the query and extracts comprehensive metadata:
+
+**Query Parsing Metadata:**
+- `query_type`: Query language ("cypher" or "gremlin")
+- `query`: Full query text
+- `node_labels`: List of node types accessed (e.g., `["Customer", "Account", "Transaction"]`)
+- `relationship_types`: List of relationship types (e.g., `["OWNS", "SENT_TXN"]`)
+- `max_depth`: Maximum traversal depth (number of hops)
+- `estimated_nodes`: Estimated number of nodes in result
+- `estimated_edges`: Estimated number of edges in result
+- `query_pattern`: Query pattern type ("simple", "path", "with_clause", etc.)
+- `has_aggregations`: Boolean indicating aggregation functions
+- `has_where_clause`: Boolean indicating WHERE clause presence
+- `has_order_by`: Boolean indicating ORDER BY clause
+- `has_limit`: Boolean indicating LIMIT clause
+
+**Resource Attributes from WHERE Clauses:**
+The parser also extracts resource-specific attributes from WHERE clause conditions:
+- `risk_rating`: Customer risk rating filters (e.g., "high", "medium", "low")
+- `pep_flag`: Politically Exposed Person flag filters
+- `transaction_amount`: Transaction amount thresholds
+- `case_id`: Case identifier filters
+- `alert_id`: Alert identifier filters
+
+**Example Resource Attributes:**
+```python
+{
+    "query_type": "cypher",
+    "query": "MATCH (c:Customer)-[:OWNS]->(acc:Account)...",
+    "node_labels": ["Customer", "Account", "Transaction"],
+    "relationship_types": ["OWNS", "SENT_TXN"],
+    "max_depth": 2,
+    "estimated_nodes": 50,
+    "estimated_edges": 100,
+    "query_pattern": "path",
+    "risk_rating": "high",
+    "transaction_amount": 50000
+}
+```
+
+**Usage in Policies:**
+- **Role-based restrictions**: Limit query depth based on role (e.g., junior analysts max depth 1, senior analysts max depth 3)
+- **Node/relationship filtering**: Restrict access to specific node types or relationships based on role
+- **Complexity limits**: Enforce query complexity limits based on role and query characteristics
+- **Attribute-based filtering**: Allow/deny queries based on resource attributes (e.g., only managers can query high-risk customers)
+
+#### How Metadata Enables RBAC/ABAC
+
+**RBAC Examples:**
+- Role hierarchy: `junior_analyst` → `senior_analyst` → `manager` with increasing permissions
+- Role-based depth limits: Different max traversal depths per role
+- Role-based node access: Certain roles can only access specific node types
+
+**ABAC Examples:**
+- Team-based access: Users can only query cases assigned to their team
+- Clearance-based access: Users with higher clearance can access PEP-flagged customers
+- Amount-based restrictions: Junior analysts cannot query transactions above certain thresholds
+- Risk-based access: Only senior analysts can query high-risk customers
+
+**Policy Evaluation:**
+Cerbos policies use CEL (Common Expression Language) to evaluate these attributes:
+```yaml
+rules:
+  - actions: ["execute"]
+    effect: EFFECT_ALLOW
+    roles: ["aml_analyst"]
+    condition:
+      expr: |
+        resource.attr.max_depth <= 2 &&
+        "Customer" in resource.attr.node_labels &&
+        !("SAR" in resource.attr.node_labels)
+```
+
+This metadata-driven approach enables fine-grained, context-aware authorization that adapts to both user characteristics and query content.
+
 ### Security Features
 
 - **JWT Tokens**: Secure, stateless authentication
