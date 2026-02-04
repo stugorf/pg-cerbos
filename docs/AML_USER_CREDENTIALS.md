@@ -98,6 +98,11 @@ This document lists all AML (Anti-Money Laundering) users available for testing 
 
 ## Quick Reference for Testing Denials
 
+**Access Control Types:**
+- **RBAC (Role-Based Access Control):** Decisions based solely on user roles (e.g., `aml_analyst_junior`, `aml_manager`)
+- **ABAC (Attribute-Based Access Control):** Decisions based on user or resource attributes (e.g., `team`, `region`, `clearance_level`)
+- **Both RBAC and ABAC:** Decisions that require both a specific role AND attribute checks
+
 ### Test Case Node Access Denial
 **User:** `analyst.junior@pg-cerbos.com`  
 **Query:**
@@ -106,7 +111,8 @@ MATCH (c:Case)
 RETURN c.case_id, c.status
 LIMIT 10
 ```
-**Expected:** Denied by Rule 4a (junior analysts cannot access Case nodes)
+**Expected:** Denied by Rule 4a (junior analysts cannot access Case nodes)  
+**Access Control Type:** **RBAC** - Decision based solely on role (`aml_analyst_junior`)
 
 ---
 
@@ -118,7 +124,8 @@ MATCH (alert:Alert)
 RETURN alert.alert_id, alert.alert_type
 LIMIT 10
 ```
-**Expected:** Denied by Rule 4a (junior analysts cannot access Alert nodes)
+**Expected:** Denied by Rule 4a (junior analysts cannot access Alert nodes)  
+**Access Control Type:** **RBAC** - Decision based solely on role (`aml_analyst_junior`)
 
 ---
 
@@ -130,7 +137,8 @@ MATCH (cust:Customer {team: 'Team B'})
 RETURN cust.customer_id, cust.name
 LIMIT 10
 ```
-**Expected:** Denied by Rule 7a (team mismatch)
+**Expected:** Denied by Rule 7a (team mismatch)  
+**Access Control Type:** **Both RBAC and ABAC** - Requires role (`aml_analyst`, `aml_analyst_junior`, or `aml_analyst_senior`) AND compares user's team attribute (Team A) with customer's team attribute (Team B)
 
 ---
 
@@ -142,7 +150,8 @@ MATCH (cust:Customer {region: 'EU'})
 RETURN cust.customer_id, cust.name
 LIMIT 10
 ```
-**Expected:** Denied by Rule 10a (region mismatch)
+**Expected:** Denied by Rule 10a (region mismatch)  
+**Access Control Type:** **Both RBAC and ABAC** - Requires role (`aml_analyst`, `aml_analyst_junior`, or `aml_analyst_senior`) AND compares user's region attribute (US) with customer's region attribute (EU)
 
 ---
 
@@ -155,7 +164,8 @@ WHERE cust.pep_flag = true
 RETURN cust.customer_id, cust.name
 LIMIT 10
 ```
-**Expected:** Denied by Rule 8a (requires clearance >= 3)
+**Expected:** Denied by Rule 8a (requires clearance >= 3)  
+**Access Control Type:** **Both RBAC and ABAC** - Requires role (`aml_analyst`, `aml_analyst_junior`, or `aml_analyst_senior`) AND checks user's clearance_level attribute (1 < 3)
 
 ---
 
@@ -168,7 +178,8 @@ WHERE txn.amount > 100000
 RETURN txn.txn_id, txn.amount
 LIMIT 10
 ```
-**Expected:** Denied by Rule 9a (requires clearance >= 2 for transactions > $100k)
+**Expected:** Denied by Rule 9a (requires clearance >= 2 for transactions > $100k)  
+**Access Control Type:** **Both RBAC and ABAC** - Requires role (`aml_analyst`, `aml_analyst_junior`, or `aml_analyst_senior`) AND checks user's clearance_level attribute (1 < 2) against transaction amount threshold
 
 ---
 
@@ -180,7 +191,8 @@ MATCH path = (c1:Customer)-[:OWNS]->(acc1:Account)-[:SENT_TXN]->(txn1:Transactio
 RETURN c1.name, txn1.amount, txn2.amount
 LIMIT 10
 ```
-**Expected:** Denied by Rule 3 (exceeds max_depth of 2)
+**Expected:** Denied by Rule 3 (exceeds max_depth of 2)  
+**Access Control Type:** **RBAC** - Decision based on role (`aml_analyst_junior`) which has a max_depth constraint of 2 hops
 
 ---
 
