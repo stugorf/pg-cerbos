@@ -108,10 +108,10 @@ test-cerbos-policies:
 test-cypher-rbac:
     @echo "🧪 Running Cypher query RBAC tests (Phase 2)..."
     @if command -v cerbos >/dev/null 2>&1; then \
-        cerbos test cerbos/policies/tests/cypher_query_test_suite.yaml || echo "❌ Cypher RBAC tests failed"; \
+        cerbos compile cerbos/policies || echo "❌ Cypher RBAC tests failed"; \
     else \
         echo "⚠️  Cerbos CLI not installed. Install with: brew install cerbos"; \
-        echo "   Or test via Docker: docker run --rm -v $(pwd)/cerbos/policies:/policies ghcr.io/cerbos/cerbos:latest test /policies/tests/cypher_query_test_suite.yaml"; \
+        echo "   Or test via Docker: docker run --rm -v $(pwd)/cerbos/policies:/policies ghcr.io/cerbos/cerbos:latest compile /policies"; \
     fi
 
 # Validate AML Cerbos policies

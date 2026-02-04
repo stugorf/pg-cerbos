@@ -4,12 +4,13 @@ resourcePolicy:
   resource: "cypher_query"
   importDerivedRoles:
     - graph_query_roles
-  # Schema validation disabled - test resources don't fully match schema requirements
-  # schemas:
-  #   principalSchema:
-  #     ref: cerbos:///aml_principal.json
-  #   resourceSchema:
-  #     ref: cerbos:///cypher_query_resource.json
+  # Schema validation enabled - validates principal attributes and resource attributes
+  # Note: Principal schema validates P.attr (attributes only), not top-level fields like id/roles
+  schemas:
+    principalSchema:
+      ref: cerbos:///aml_principal.json
+    resourceSchema:
+      ref: cerbos:///cypher_query_resource.json
   rules:
     # ============================================================================
     # RULE 1: Admin - Full access (no conditions)
@@ -110,3 +111,29 @@ resourcePolicy:
           expr: |
             R.attr.max_depth <= 4 &&
             size(R.attr.node_labels.filter(l, l == "SAR")) == 0
+    
+    # ============================================================================
+    # RULE 6: General Analyst (fallback for aml_analyst without derived role)
+    # Reasoning: Base aml_analyst role gets limited access (same as junior)
+    #   - max_depth <= 2 (2 hops max)
+    #   - No SAR nodes
+    #   - No Case/Alert nodes (same restrictions as junior)
+    #   - No sensitive relationships (same restrictions as junior)
+    #   - This provides fallback access for users with only aml_analyst role
+    #   - Users with derived roles (junior/senior) will match those rules instead
+    #   - Note: DENY rules for junior analysts don't apply to base aml_analyst role,
+    #     so we must include these restrictions in the ALLOW condition
+    # ============================================================================
+    - actions: ["execute"]
+      effect: EFFECT_ALLOW
+      roles: ["aml_analyst"]
+      condition:
+        match:
+          expr: |
+            R.attr.max_depth <= 2 &&
+            size(R.attr.node_labels.filter(l, l == "SAR")) == 0 &&
+            size(R.attr.node_labels.filter(l, l == "Case")) == 0 &&
+            size(R.attr.node_labels.filter(l, l == "Alert")) == 0 &&
+            size(R.attr.relationship_types.filter(r, r == "FLAGS_CUSTOMER")) == 0 &&
+            size(R.attr.relationship_types.filter(r, r == "FLAGS_ACCOUNT")) == 0 &&
+            size(R.attr.relationship_types.filter(r, r == "FROM_ALERT")) == 0

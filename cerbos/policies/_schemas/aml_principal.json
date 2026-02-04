@@ -1,33 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "title": "AML Principal Schema",
-  "description": "Schema for AML user principals in AML PoC",
+  "title": "AML Principal Attributes Schema",
+  "description": "Schema for AML user principal attributes (attr object only). Note: 'id' and 'roles' are top-level principal fields, not attributes.",
   "properties": {
-    "id": {
-      "type": "string",
-      "description": "Unique user identifier"
-    },
     "email": {
       "type": "string",
       "format": "email",
       "description": "User email address"
-    },
-    "roles": {
-      "type": "array",
-      "items": {
-        "type": "string",
-        "enum": [
-          "admin",
-          "aml_analyst",
-          "aml_analyst_junior",
-          "aml_analyst_senior",
-          "aml_manager",
-          "aml_manager_full",
-          "auditor"
-        ]
-      },
-      "description": "List of AML roles assigned to the user (includes admin for system-wide access)"
     },
     "team": {
       "type": "string",
@@ -38,5 +18,5 @@
       "description": "Whether the user account is active"
     }
   },
-  "required": ["id", "roles"]
+  "additionalProperties": true
 }

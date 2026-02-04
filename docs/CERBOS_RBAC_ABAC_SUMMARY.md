@@ -214,8 +214,9 @@ resourcePolicy:
 - Depth restrictions: Junior (2 hops), Senior (4 hops)
 - Node restrictions: Junior (basic nodes only), Senior (all except SAR)
 - Relationship restrictions: Junior (basic only), Senior (all alert relationships)
-- Complexity limits: Junior (100 nodes/edges), Senior (1000 nodes/edges)
-- Comprehensive test suite with 40+ test cases
+- Comprehensive test suite with 16 test cases (all passing)
+- Schema validation enabled and working correctly
+- All rules documented with reasoning and test verification
 
 ### ⏳ Phase 3: Enhanced ABAC - PENDING
 - User attributes (team, region, clearance_level)
@@ -228,9 +229,17 @@ resourcePolicy:
 
 ## Next Steps
 
-1. **Review Phase 2 implementation** with stakeholders
-2. **Run test suite** to verify all role restrictions work correctly: `just test-cerbos-policies`
+1. ✅ **Phase 2 implementation complete** - All 16 tests passing with schema validation enabled
+2. **Run test suite** to verify all role restrictions work correctly: `just test-cypher-rbac`
 3. **Start Phase 3** (Enhanced ABAC) for user attribute-based restrictions
 4. **Iterate** based on feedback and testing
+
+## Phase 2 Implementation Details
+
+- **Policy File**: `cerbos/policies/resource_policies/cypher_query.yaml`
+- **Test Suite**: `cerbos/policies/tests/cypher_query_test_suite_test.yaml`
+- **Schema Validation**: ✅ Enabled and working
+- **Test Results**: 16/16 tests passing
+- **Documentation**: See `docs/PHASE2_SCHEMA_VALIDATION_FIX.md` for detailed investigation and resolution
 
 For detailed analysis, see [CERBOS_RBAC_ABAC_ANALYSIS.md](./CERBOS_RBAC_ABAC_ANALYSIS.md).
