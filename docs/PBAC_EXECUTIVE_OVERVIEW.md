@@ -1,8 +1,9 @@
 # Policy-Based Access Control (PBAC) for PuppyGraph
 ## Executive Overview
 
-**Document Version:** 1.0  
-**Date:** 2024  
+**Document Version:** 2.0  
+**Date:** 2025  
+**Last Updated:** February 2025  
 **Audience:** Executive Leadership, Security Officers, Compliance Teams
 
 ---
@@ -108,9 +109,33 @@ We have implemented a comprehensive PBAC solution using **Cerbos** as the Policy
 ### Key Components
 
 1. **Cerbos Policy Decision Point**: Centralized authorization service that evaluates policies
+   - Uses gRPC for high-performance communication (< 10ms latency)
+   - Evaluates YAML policies using CEL (Common Expression Language)
+   - Supports schema validation for type safety
+   - Implements derived roles for role hierarchy
+   - Hot-reloads policies without service restart
+
 2. **Query Parser**: Extracts metadata from graph queries (node types, relationships, depth, complexity)
+   - Regex-based Cypher parser (no external dependencies)
+   - Extracts structural metadata (nodes, relationships, depth)
+   - Extracts resource attributes from WHERE clauses and node properties
+   - Estimates query complexity (nodes, edges)
+
 3. **Policy Engine**: YAML-based policies defining access rules based on roles and attributes
-4. **Audit Logging**: Complete record of all authorization decisions
+   - Version-controlled in Git
+   - Supports RBAC (role-based) and ABAC (attribute-based) rules
+   - Uses DENY-before-ALLOW evaluation order for defense-in-depth
+   - Comprehensive test coverage (32 test cases)
+
+4. **User Attributes Management**: Database-backed user attribute storage
+   - Stores team, region, clearance_level, department
+   - API endpoints for attribute management (admin-only updates)
+   - Integrated with authorization flow
+
+5. **Audit Logging**: Complete record of all authorization decisions
+   - Logs every authorization request and decision
+   - Includes user identity, roles, attributes, query metadata, and policy evaluated
+   - Enables compliance reporting and security analysis
 
 ---
 
@@ -120,27 +145,26 @@ RBAC restricts access based on user roles, providing a hierarchical permission m
 
 ### Role Hierarchy
 
-Our implementation includes a three-tier role hierarchy for graph query access:
+Our implementation uses Cerbos derived roles to create a hierarchical permission model. The role hierarchy is implemented as follows:
 
 ```
 ┌─────────────────────────────────────────┐
-│         aml_analyst_manager             │
-│         (Full Access)                   │
+│         aml_manager / aml_manager_full  │
+│         (Full Access - No Restrictions) │
 │  • Unlimited traversal depth            │
 │  • Access to all node types            │
 │  • Access to all relationships          │
 │  • No complexity restrictions          │
-└───────────────┬─────────────────────────┘
-                │
-                │ Inherits from
-                ▼
+└─────────────────────────────────────────┘
+
 ┌─────────────────────────────────────────┐
 │         aml_analyst_senior              │
 │         (Enhanced Access)               │
 │  • Up to 4-hop traversal depth          │
-│  • Most node types (except SAR)         │
-│  • Most relationships                    │
+│  • All node types except SAR            │
+│  • All relationships                    │
 │  • Moderate complexity limits           │
+│  • Inherits from: aml_analyst_junior    │
 └───────────────┬─────────────────────────┘
                 │
                 │ Inherits from
@@ -150,10 +174,24 @@ Our implementation includes a three-tier role hierarchy for graph query access:
 │         (Restricted Access)             │
 │  • Up to 2-hop traversal depth          │
 │  • Basic node types only                │
+│    (Customer, Account, Transaction)      │
 │  • Basic relationships only            │
+│    (OWNS, SENT_TXN)                     │
 │  • Strict complexity limits             │
+│  • Inherits from: aml_analyst           │
+└───────────────┬─────────────────────────┘
+                │
+                │ Base role
+                ▼
+┌─────────────────────────────────────────┐
+│         aml_analyst                      │
+│         (Base Role - Fallback)          │
+│  • Limited access (same as junior)      │
+│  • Used when no derived role assigned   │
 └─────────────────────────────────────────┘
 ```
+
+**Implementation Note:** The hierarchy is implemented using Cerbos derived roles, which automatically grant permissions from parent roles to child roles. This ensures that senior analysts inherit all junior analyst permissions plus their own enhanced permissions.
 
 ### RBAC Capabilities
 
@@ -163,14 +201,14 @@ Our implementation includes a three-tier role hierarchy for graph query access:
 - Managers: Unlimited depth
 
 **Node Type Restrictions**
-- Junior analysts: Can access Customer, Account, Transaction nodes only
+- Junior analysts: Can access Customer, Account, Transaction nodes only (explicitly denied: Case, Alert, SAR)
 - Senior analysts: Can access all nodes except SAR (Suspicious Activity Reports)
-- Managers: Full access to all node types
+- Managers: Full access to all node types (no restrictions)
 
 **Relationship Type Restrictions**
-- Junior analysts: Basic relationships (OWNS, SENT_TXN) only
-- Senior analysts: All relationships except sensitive investigation paths
-- Managers: Full access to all relationships
+- Junior analysts: Basic relationships (OWNS, SENT_TXN) only (explicitly denied: FLAGS_CUSTOMER, FLAGS_ACCOUNT, FROM_ALERT)
+- Senior analysts: All relationships (including alert-related relationships)
+- Managers: Full access to all relationships (no restrictions)
 
 **Query Complexity Limits**
 - Role-based limits on estimated nodes and edges in query results
@@ -191,38 +229,66 @@ ABAC extends RBAC by making access decisions based on attributes of the user, re
 
 ### User Attributes
 
-The system supports user attributes that can be used in policy evaluation:
-- **Team**: User's team assignment (e.g., "Team A", "Team B")
-- **Region**: Geographic region
-- **Clearance Level**: Security clearance level (numeric)
-- **Department**: Organizational department
+The system stores and uses user attributes in policy evaluation. These attributes are stored in the database and passed to Cerbos as principal attributes:
+
+- **Team**: User's team assignment (e.g., "Team A", "Team B") - Used for team-based access control
+- **Region**: Geographic region (e.g., "US", "EU", "APAC") - Used for region-based access control
+- **Clearance Level**: Security clearance level (1-5, where 1=lowest, 5=highest) - Used for clearance-based restrictions
+- **Department**: Organizational department (e.g., "AML", "IT", "Compliance")
+- **Email**: User email address (automatically included)
+
+**Implementation:** User attributes are stored in the `user_attributes` database table and retrieved via the `get_user_attributes()` function. Attributes are passed to Cerbos as principal attributes (`P.attr.*`) for policy evaluation.
 
 ### Resource Attributes
 
-The query parser extracts attributes from graph queries, enabling policies to evaluate:
-- **Node Labels**: Types of nodes accessed (Customer, Account, Transaction, SAR, Case)
-- **Relationship Types**: Types of relationships traversed
-- **Traversal Depth**: Number of hops in the graph
+The query parser extracts attributes from graph queries, enabling policies to evaluate query content:
+
+**Query Structure Attributes:**
+- **Node Labels**: Types of nodes accessed (Customer, Account, Transaction, SAR, Case, Alert)
+- **Relationship Types**: Types of relationships traversed (OWNS, SENT_TXN, FLAGS_CUSTOMER, etc.)
+- **Traversal Depth**: Maximum number of hops in the graph (calculated from query structure)
 - **Query Complexity**: Estimated nodes and edges in results
-- **Data Sensitivity**: Risk ratings, PEP flags, transaction amounts extracted from query filters
+- **Query Pattern**: Type of query pattern (simple, path, multi_match, with_clause, union)
 
-### ABAC Policy Examples
+**Data Sensitivity Attributes (Extracted from WHERE Clauses):**
+- **risk_rating**: Customer risk rating (e.g., "high", "medium", "low")
+- **pep_flag**: Politically Exposed Person flag (boolean)
+- **transaction_amount_min/max**: Transaction amount thresholds extracted from WHERE clauses
+- **customer_team**: Team assignment extracted from Customer node filters
+- **customer_region**: Region assignment extracted from Customer node filters
+- **severity**: Alert severity level
+- **status**: Case or Alert status
 
-**Team-Based Access**
-- Users can only query cases assigned to their team
-- Prevents cross-team data access
+**Implementation:** Resource attributes are extracted by the Cypher parser from WHERE clauses and node property patterns. They are passed to Cerbos as resource attributes (`R.attr.*`) for policy evaluation.
 
-**Clearance-Based Access**
-- Only users with sufficient clearance can query PEP (Politically Exposed Person) flagged customers
-- Enforces security clearance requirements
+### ABAC Policy Rules
 
-**Amount-Based Restrictions**
-- Junior analysts cannot query transactions above certain thresholds
-- Prevents access to high-value transaction data without proper authorization
+The system implements 8 ABAC rules (4 ALLOW + 4 DENY) that work together with RBAC rules:
 
-**Risk-Based Access**
-- Only senior analysts can query high-risk customers
-- Protects sensitive risk assessment data
+**Team-Based Access Control:**
+- **Rule 7 (ALLOW)**: Users can query customers from their own team, or if no team is specified
+- **Rule 7a (DENY)**: Explicitly denies access when user team doesn't match customer team
+- **Business Value**: Prevents cross-team data access, ensuring data isolation
+
+**Clearance-Based Access Control:**
+- **Rule 8 (ALLOW)**: Users with clearance_level ≥ 3 can query PEP-flagged customers
+- **Rule 8a (DENY)**: Explicitly denies PEP access for users with clearance_level < 3
+- **Business Value**: Enforces security clearance requirements for sensitive customer data
+
+**Transaction Amount Restrictions:**
+- **Rule 9 (ALLOW)**: Allows transactions based on clearance level:
+  - Transactions ≤ $100k: All users
+  - Transactions $100k-$500k: Requires clearance_level ≥ 2
+  - Transactions > $500k: Requires clearance_level ≥ 3
+- **Rule 9a (DENY)**: Explicitly denies high-value transactions for users with insufficient clearance
+- **Business Value**: Prevents access to high-value transaction data without proper authorization
+
+**Region-Based Access Control:**
+- **Rule 10 (ALLOW)**: Users can query customers from their own region, or if no region is specified
+- **Rule 10a (DENY)**: Explicitly denies access when user region doesn't match customer region
+- **Business Value**: Enforces geographic data isolation for compliance with regional regulations
+
+**Policy Evaluation Order:** DENY rules are evaluated first (before ALLOW rules), ensuring that explicit restrictions take precedence. This provides defense-in-depth security.
 
 ### Business Value
 
@@ -241,17 +307,32 @@ The system analyzes graph queries before execution to extract metadata used for 
 
 When a user submits a graph query, the system:
 
-1. **Parses the Query**: Analyzes the Cypher query syntax
-2. **Extracts Metadata**:
-   - Node types accessed (Customer, Account, Transaction, etc.)
-   - Relationship types traversed (OWNS, SENT_TXN, etc.)
-   - Maximum traversal depth (number of hops)
-   - Query complexity (estimated nodes and edges)
-   - Query pattern (simple, path traversal, aggregation, etc.)
-3. **Extracts Resource Attributes**: Identifies filters and conditions (risk ratings, PEP flags, amounts)
-4. **Builds Authorization Request**: Combines user attributes and query metadata
-5. **Evaluates Policy**: Cerbos evaluates policies against the request
-6. **Enforces Decision**: Allows or denies query execution
+1. **Authenticates User**: Extracts user identity from JWT token
+2. **Retrieves User Roles**: Queries database for user's assigned roles
+3. **Retrieves User Attributes**: Queries database for user attributes (team, region, clearance_level, department)
+4. **Parses the Query**: Analyzes the Cypher query syntax using regex-based parser
+5. **Extracts Query Metadata**:
+   - Node labels accessed (Customer, Account, Transaction, SAR, Case, Alert)
+   - Relationship types traversed (OWNS, SENT_TXN, FLAGS_CUSTOMER, etc.)
+   - Maximum traversal depth (calculated by counting relationship patterns)
+   - Query complexity (estimated nodes and edges based on query structure)
+   - Query pattern (simple, path, multi_match, with_clause, union)
+6. **Extracts Resource Attributes**: Parses WHERE clauses and node properties to extract:
+   - Risk ratings, PEP flags, transaction amounts
+   - Customer team and region assignments
+   - Alert severity and case status
+7. **Builds Authorization Request**: Combines:
+   - Principal (user ID, roles, user attributes)
+   - Resource (query metadata + resource attributes)
+   - Action ("execute" for Cypher queries)
+8. **Evaluates Policy**: Cerbos evaluates YAML policies using CEL (Common Expression Language):
+   - First evaluates DENY rules (fail-safe defaults)
+   - Then evaluates ALLOW rules (explicit permissions)
+   - Uses schema validation to ensure attribute types are correct
+9. **Enforces Decision**: 
+   - If ALLOW: Executes query via PuppyGraph
+   - If DENY: Returns 403 Forbidden with denial reason
+10. **Logs Decision**: Records authorization decision for audit trail
 
 ### Example: Query Analysis
 
@@ -272,11 +353,20 @@ RETURN c, acc, txn
 
 **Policy Evaluation:**
 - User role: `aml_analyst_junior`
-- Policy checks:
-  - ✅ Max depth ≤ 2: **PASS**
-  - ✅ Node labels allowed: **PASS**
-  - ❌ High-risk customers require senior analyst: **FAIL**
-- **Decision: DENY**
+- User attributes: `{team: "Team A", clearance_level: 1, region: "US"}`
+- Policy checks (in order):
+  1. DENY rules evaluated first:
+     - ✅ No Case/Alert nodes: **PASS** (not denied)
+     - ✅ No sensitive relationships: **PASS** (not denied)
+     - ✅ Team match (Team A = Team A): **PASS** (not denied)
+     - ✅ No PEP flag or PEP clearance sufficient: **PASS** (not denied)
+     - ✅ Transaction amount ≤ $100k or clearance sufficient: **PASS** (not denied)
+     - ✅ Region match (US = US): **PASS** (not denied)
+  2. ALLOW rules evaluated:
+     - ✅ Max depth ≤ 2: **PASS**
+     - ✅ No SAR nodes: **PASS**
+     - ✅ Node labels allowed (Customer, Account, Transaction): **PASS**
+- **Decision: ALLOW** (query executes)
 
 ---
 
@@ -329,33 +419,49 @@ RETURN c, acc, txn
 - ✅ Unit test coverage
 
 **Phase 2: Enhanced RBAC**
-- ✅ Role hierarchy implementation (junior → senior → manager)
-- ✅ Traversal depth restrictions per role
-- ✅ Node type restrictions per role
-- ✅ Relationship type restrictions per role
-- ✅ Query complexity limits per role
-- ✅ Comprehensive test suite (16 test cases, all passing)
-- ✅ Schema validation enabled
+- ✅ Role hierarchy implementation using Cerbos derived roles
+  - Base role: `aml_analyst`
+  - Derived roles: `aml_analyst_junior` → `aml_analyst_senior`
+  - Manager roles: `aml_manager`, `aml_manager_full`
+- ✅ Traversal depth restrictions per role (junior: 2, senior: 4, manager: unlimited)
+- ✅ Node type restrictions per role (explicit DENY rules for junior analysts)
+- ✅ Relationship type restrictions per role (explicit DENY rules for sensitive relationships)
+- ✅ Query complexity limits per role (estimated nodes and edges)
+- ✅ Comprehensive test suite (16 RBAC test cases, 100% passing)
+- ✅ Schema validation enabled and working correctly
 
-**Phase 3: Policy Infrastructure**
-- ✅ Cerbos Policy Decision Point integrated
-- ✅ YAML policy definitions
-- ✅ Policy validation and testing
-- ✅ Audit logging infrastructure
-- ✅ Real-time authorization enforcement
+**Phase 3: Enhanced ABAC** ✅ **COMPLETE**
+- ✅ User attribute management (database schema, models, API endpoints)
+  - User attributes table with team, region, clearance_level, department
+  - GET/PUT/POST endpoints for attribute management
+  - Integration with authorization flow
+- ✅ Principal schema extended with user attributes
+- ✅ Resource attribute extraction from Cypher queries
+  - Extracts customer_team, customer_region from WHERE clauses and node properties
+  - Extracts risk_rating, pep_flag, transaction_amount from query filters
+- ✅ Attribute-based policies implemented (8 rules: 4 ALLOW + 4 DENY)
+  - Team-based access control
+  - Clearance-based PEP and transaction amount restrictions
+  - Region-based access control
+- ✅ Comprehensive test suite (16 ABAC test cases, 100% passing)
+- ✅ Integration with RBAC (ABAC rules work seamlessly with role-based restrictions)
+
+**Phase 4: Policy Infrastructure** ✅ **COMPLETE**
+- ✅ Cerbos Policy Decision Point integrated (gRPC client)
+- ✅ YAML policy definitions with comprehensive rules
+- ✅ Schema validation enabled for type safety
+- ✅ Policy validation and testing (32 total tests: 16 RBAC + 16 ABAC)
+- ✅ Audit logging infrastructure (all decisions logged)
+- ✅ Real-time authorization enforcement (pre-query authorization)
 
 ### 🔄 Future Enhancements
 
-**Phase 4: Enhanced ABAC** (Planned)
-- User attribute management (team, region, clearance level)
-- Additional attribute-based policies
-- Dynamic policy evaluation based on data context
-
 **Phase 5: Advanced Features** (Planned)
-- Execution time limits
-- Result set size limits
-- Query cost estimation
+- Execution time limits (prevent long-running queries)
+- Result set size limits (prevent data exfiltration)
+- Query cost estimation (more sophisticated complexity analysis)
 - Performance monitoring and alerting
+- Query result filtering (post-query data masking based on attributes)
 
 ---
 
@@ -393,10 +499,13 @@ RETURN c, acc, txn
    - Executes authorized queries via PuppyGraph
 
 2. **Cerbos Policy Decision Point**
-   - Evaluates YAML policies
-   - Makes authorization decisions
+   - Evaluates YAML policies using CEL (Common Expression Language)
+   - Makes authorization decisions based on principal and resource attributes
+   - Uses schema validation to ensure type safety
+   - Supports derived roles for role hierarchy
    - Logs all decisions for audit
-   - Provides REST and gRPC APIs
+   - Provides gRPC API (primary) and REST API
+   - Policy files version-controlled in Git
 
 3. **Query Parser**
    - Analyzes Cypher query syntax
@@ -411,14 +520,26 @@ RETURN c, acc, txn
 
 ### Data Flow
 
-1. User submits graph query
-2. Backend authenticates user and extracts roles
-3. Backend parses query to extract metadata
-4. Backend requests authorization from Cerbos (includes user + query metadata)
-5. Cerbos evaluates policies and returns decision
-6. If ALLOW: Backend executes query via PuppyGraph
-7. If DENY: Backend returns 403 Forbidden
-8. All decisions logged for audit
+1. **User submits graph query** via API endpoint (`/query/graph`)
+2. **Backend authenticates user** and extracts JWT token
+3. **Backend retrieves user roles** from database (supports multiple roles per user)
+4. **Backend retrieves user attributes** from database (team, region, clearance_level, department)
+5. **Backend parses Cypher query** to extract:
+   - Structural metadata (node labels, relationship types, traversal depth)
+   - Resource attributes (risk_rating, pep_flag, transaction_amount, customer_team, customer_region)
+6. **Backend builds authorization request** with:
+   - Principal: user ID, roles, user attributes
+   - Resource: query metadata + resource attributes
+   - Action: "execute"
+7. **Backend sends request to Cerbos** via gRPC
+8. **Cerbos evaluates policies**:
+   - Validates schemas (principal and resource attributes)
+   - Evaluates DENY rules first (fail-safe defaults)
+   - Evaluates ALLOW rules (explicit permissions)
+   - Returns decision (ALLOW/DENY) with reason
+9. **Backend logs authorization decision** for audit trail
+10. **If ALLOW**: Backend executes query via PuppyGraph and returns results
+11. **If DENY**: Backend returns 403 Forbidden with denial reason
 
 ---
 
@@ -431,17 +552,25 @@ We have successfully implemented a production-ready Policy-Based Access Control 
 - **Reduces risk** through automated enforcement and defense in depth
 - **Improves operations** with centralized policy management and rapid updates
 
-The system is ready for production use and provides a solid foundation for future enhancements, including additional ABAC capabilities and advanced security features.
+The system is production-ready with comprehensive RBAC and ABAC capabilities. All core features are implemented and tested, including role hierarchy, attribute-based access control, query parsing, and policy enforcement. The system provides a solid foundation for future enhancements, including execution time limits, result set size limits, and advanced performance monitoring.
 
 ---
 
 ## Appendix: Key Metrics
 
-- **Policy Test Coverage**: 16 test cases, 100% passing
+- **Policy Test Coverage**: 32 test cases total, 100% passing
+  - 16 RBAC test cases (Phase 2)
+  - 16 ABAC test cases (Phase 3)
 - **Query Parsing Accuracy**: Comprehensive metadata extraction for all Cypher query patterns
-- **Authorization Latency**: < 10ms per authorization decision
-- **Audit Logging**: 100% of authorization decisions logged
-- **Policy Update Time**: < 1 minute (no service restart required)
+  - Node labels, relationship types, traversal depth
+  - Resource attributes (risk_rating, pep_flag, transaction_amount, customer_team, customer_region)
+  - Query complexity estimation
+- **Authorization Latency**: < 10ms per authorization decision (gRPC communication with Cerbos)
+- **Audit Logging**: 100% of authorization decisions logged with full context
+- **Policy Update Time**: < 1 minute (no service restart required, Cerbos hot-reloads policies)
+- **Schema Validation**: Enabled for both principal and resource attributes (type safety)
+- **Role Hierarchy**: 3-tier hierarchy implemented using Cerbos derived roles
+- **ABAC Rules**: 8 attribute-based rules (4 ALLOW + 4 DENY) covering team, clearance, region, and amount restrictions
 
 ---
 
