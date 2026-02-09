@@ -2060,6 +2060,84 @@ body {
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
 }
 
+/* Natural language graph query */
+.nl-query-section {
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid #e1e5e9;
+}
+.nl-query-section .form-hint {
+    font-size: 12px;
+    color: #6c757d;
+    margin-bottom: 8px;
+}
+.nl-query-section #nl-query-input {
+    width: 100%;
+    min-height: 60px;
+    padding: 8px 12px;
+    border: 2px solid #e1e5e9;
+    border-radius: 8px;
+    font-size: 14px;
+    margin-bottom: 10px;
+}
+.nl-controls {
+    margin-bottom: 15px;
+}
+.nl-generated-cypher {
+    margin-top: 12px;
+    padding: 12px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    font-size: 13px;
+}
+.nl-generated-cypher pre {
+    margin: 8px 0 0;
+    white-space: pre-wrap;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 12px;
+}
+.nl-validation-errors {
+    margin-top: 8px;
+    font-size: 12px;
+    color: #0d6efd;
+}
+.nl-validation-errors.errors {
+    color: #dc3545;
+}
+#view-generated-cypher-btn {
+    margin-top: 10px;
+}
+
+/* NL step indicator while query runs */
+.nl-steps {
+    text-align: left;
+    padding: 12px 0;
+}
+.nl-step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 0;
+    font-size: 14px;
+}
+.nl-step-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #dee2e6;
+    flex-shrink: 0;
+}
+.nl-step-pending .nl-step-dot { background: #dee2e6; }
+.nl-step-active .nl-step-dot {
+    background: #0d6efd;
+    box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.3);
+}
+.nl-step-active .nl-step-label { color: #0d6efd; font-weight: 500; }
+.nl-step-done .nl-step-dot { background: #198754; }
+.nl-step-done .nl-step-label { color: #6c757d; }
+.nl-step-error .nl-step-dot { background: #dc3545; }
+.nl-step-error .nl-step-label { color: #dc3545; }
+
 /* AML Management Styles */
 .aml-management-interface {
     padding: 20px;

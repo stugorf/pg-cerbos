@@ -154,6 +154,21 @@
                                 <button id="execute-graph-query-btn" class="btn btn-primary">Execute Graph Query</button>
                                 <button id="clear-graph-query-btn" class="btn btn-secondary">Clear</button>
                             </div>
+                            <div class="form-group nl-query-section">
+                                <label>Or ask in natural language</label>
+                                <p class="form-hint">e.g. &quot;Customers who own accounts&quot;, &quot;Transactions over 50000&quot;, &quot;Alerts that flag customers&quot;</p>
+                                <textarea id="nl-query-input" placeholder="Ask a question about the graph in plain English..." rows="3"></textarea>
+                                <div class="query-controls nl-controls">
+                                    <button id="nl-generate-cypher-btn" class="btn btn-secondary">Generate Cypher</button>
+                                    <button id="nl-ask-execute-btn" class="btn btn-primary">Ask &amp; Execute</button>
+                                </div>
+                                <div id="nl-generated-cypher" class="nl-generated-cypher" style="display: none;">
+                                    <strong>Generated Cypher:</strong>
+                                    <pre id="nl-cypher-text"></pre>
+                                    <div id="nl-validation-errors" class="nl-validation-errors"></div>
+                                </div>
+                                <button type="button" id="view-generated-cypher-btn" class="btn btn-secondary btn-sm" style="display: none;">View generated Cypher</button>
+                            </div>
                         </div>
 
                         <div class="query-results">
@@ -1798,6 +1813,12 @@ Last Updated: ${new Date().toLocaleString()}`;
                     document.getElementById('graph-query-output').innerHTML = '<div class="no-query-message"><p>Enter a Cypher or Gremlin query above and click "Execute Graph Query" to see results</p></div>';
                 });
             }
+            const nlGenerateBtn = document.getElementById('nl-generate-cypher-btn');
+            if (nlGenerateBtn) nlGenerateBtn.addEventListener('click', executeNLGenerateCypher);
+            const nlAskExecuteBtn = document.getElementById('nl-ask-execute-btn');
+            if (nlAskExecuteBtn) nlAskExecuteBtn.addEventListener('click', executeNLAskAndExecute);
+            const viewCypherBtn = document.getElementById('view-generated-cypher-btn');
+            if (viewCypherBtn) viewCypherBtn.addEventListener('click', toggleViewGeneratedCypher);
             
             // Initialize AML management
             initializeAMLManagement();
@@ -1863,41 +1884,284 @@ Last Updated: ${new Date().toLocaleString()}`;
             }
         }
         
+        function formatGraphCellValue(val) {
+            if (val === null || val === undefined) return '';
+            if (typeof val === 'object' && !Array.isArray(val)) {
+                if (typeof val.getTime === 'function') return val.toISOString().slice(0, 19).replace('T', ' ');
+                if (typeof val.toISOString === 'function') return val.toISOString().slice(0, 19).replace('T', ' ');
+                if (typeof val.iso_format === 'function') return String(val.iso_format()).slice(0, 19).replace('T', ' ');
+                if (val.year !== undefined && val.month !== undefined && val.day !== undefined) {
+                    const y = val.year, m = String(val.month).padStart(2, '0'), d = String(val.day).padStart(2, '0');
+                    const t = (val.hour != null && val.minute != null) ? ` ${String(val.hour).padStart(2, '0')}:${String(val.minute).padStart(2, '0')}` : '';
+                    return `${y}-${m}-${d}${t}`.trim();
+                }
+                return JSON.stringify(val);
+            }
+            return String(val);
+        }
+
         function displayGraphQueryResults(data, queryType) {
             const queryOutput = document.getElementById('graph-query-output');
             
-            // Format results based on query type
-            let html = '<div class="graph-results">';
+            // PuppyGraph Cypher returns { results: [...], columns: [...] }
+            if (data && typeof data === 'object' && Array.isArray(data.results) && Array.isArray(data.columns)) {
+                const rows = data.results;
+                const columns = data.columns;
+                let html = '<div class="graph-results"><table class="results-table"><thead><tr>';
+                columns.forEach((col, colIndex) => {
+                    const name = typeof col === 'object' && col !== null && 'name' in col ? col.name : col;
+                    html += `<th>${escapeHtml(String(name))}</th>`;
+                });
+                html += '</tr></thead><tbody>';
+                rows.forEach(row => {
+                    html += '<tr>';
+                    columns.forEach((col, colIndex) => {
+                        const key = typeof col === 'object' && col !== null && 'name' in col ? col.name : col;
+                        let val = row[key];
+                        if (val === undefined && Array.isArray(row)) val = row[colIndex];
+                        const display = formatGraphCellValue(val);
+                        html += `<td>${escapeHtml(display)}</td>`;
+                    });
+                    html += '</tr>';
+                });
+                html += '</tbody></table></div>';
+                queryOutput.innerHTML = html;
+                return;
+            }
             
+            let html = '<div class="graph-results">';
             if (Array.isArray(data)) {
                 html += '<table class="results-table"><thead><tr>';
                 if (data.length > 0 && typeof data[0] === 'object') {
                     Object.keys(data[0]).forEach(key => {
-                        html += `<th>${key}</th>`;
+                        html += `<th>${escapeHtml(key)}</th>`;
                     });
                 }
                 html += '</tr></thead><tbody>';
-                
                 data.forEach(row => {
                     html += '<tr>';
                     if (typeof row === 'object') {
                         Object.values(row).forEach(val => {
-                            html += `<td>${JSON.stringify(val)}</td>`;
+                            html += `<td>${val !== null && val !== undefined ? escapeHtml(JSON.stringify(val)) : ''}</td>`;
                         });
                     } else {
-                        html += `<td>${row}</td>`;
+                        html += `<td>${escapeHtml(String(row))}</td>`;
                     }
                     html += '</tr>';
                 });
                 html += '</tbody></table>';
             } else if (typeof data === 'object') {
-                html += '<pre class="json-results">' + JSON.stringify(data, null, 2) + '</pre>';
+                html += '<pre class="json-results">' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
             } else {
-                html += `<div class="text-results">${data}</div>`;
+                html += `<div class="text-results">${escapeHtml(String(data))}</div>`;
             }
-            
             html += '</div>';
             queryOutput.innerHTML = html;
+        }
+        
+        function toggleViewGeneratedCypher() {
+            const block = document.getElementById('nl-generated-cypher');
+            const btn = document.getElementById('view-generated-cypher-btn');
+            if (!block || !btn) return;
+            const visible = block.style.display !== 'none';
+            block.style.display = visible ? 'none' : 'block';
+            btn.textContent = visible ? 'View generated Cypher' : 'Hide generated Cypher';
+        }
+
+        async function executeNLGenerateCypher() {
+            const input = document.getElementById('nl-query-input');
+            const query = (input && input.value) ? input.value.trim() : '';
+            const block = document.getElementById('nl-generated-cypher');
+            const cypherPre = document.getElementById('nl-cypher-text');
+            const errorsDiv = document.getElementById('nl-validation-errors');
+            const viewCypherBtn = document.getElementById('view-generated-cypher-btn');
+            const queryStatusEl = document.getElementById('graph-query-status');
+            if (!query) {
+                if (block) block.style.display = 'none';
+                if (viewCypherBtn) viewCypherBtn.style.display = 'none';
+                showGraphQueryError('Please enter a natural language question.');
+                return;
+            }
+            const token = authToken || localStorage.getItem('authToken');
+            if (!token) {
+                showGraphQueryError('Please log in to use natural language queries.');
+                return;
+            }
+            if (queryStatusEl) { queryStatusEl.textContent = ''; queryStatusEl.className = ''; }
+            const queryOutput = document.getElementById('graph-query-output');
+            if (queryOutput) queryOutput.innerHTML = '<div class="loading"><span class="nl-step-label">Fetching schema and generating Cypher…</span></div>';
+            // Show generated-cypher block immediately with placeholder so each new question visibly updates the UI
+            if (block) block.style.display = 'block';
+            if (cypherPre) cypherPre.textContent = 'Generating…';
+            if (viewCypherBtn) { viewCypherBtn.style.display = 'inline-block'; viewCypherBtn.textContent = 'Hide generated Cypher'; }
+            try {
+                const res = await fetch(`${JSON_API_URL}/query/graph/natural-language`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                    body: JSON.stringify({ query: query, execute: false })
+                });
+                const text = await res.text();
+                let result;
+                try { result = JSON.parse(text); } catch (_) { result = {}; }
+                if (!res.ok) {
+                    const detail = (result && result.detail) ? result.detail : (res.statusText || text || 'Request failed');
+                    if (cypherPre) cypherPre.textContent = '(request failed – see message below)';
+                    showGraphQueryError(typeof detail === 'string' ? detail : JSON.stringify(detail));
+                    return;
+                }
+                if (block) block.style.display = 'block';
+                if (cypherPre) cypherPre.textContent = (result && result.cypher) ? result.cypher : '';
+                if (errorsDiv) {
+                    if (result.validation_errors && result.validation_errors.length) {
+                        errorsDiv.innerHTML = '<strong>Validation:</strong> ' + result.validation_errors.join(' ');
+                        errorsDiv.className = 'nl-validation-errors errors';
+                    } else {
+                        errorsDiv.innerHTML = result.valid ? 'Cypher is valid for the current schema.' : '';
+                        errorsDiv.className = 'nl-validation-errors';
+                    }
+                }
+                if (result.cypher) {
+                    const queryInput = document.getElementById('graph-query-input');
+                    if (queryInput) queryInput.value = result.cypher;
+                }
+                if (viewCypherBtn) {
+                    viewCypherBtn.style.display = 'inline-block';
+                    viewCypherBtn.textContent = 'Hide generated Cypher';
+                }
+                if (queryStatusEl) {
+                    queryStatusEl.textContent = result.valid ? 'Cypher generated' : 'Validation issues';
+                    queryStatusEl.className = result.valid ? 'status-success' : 'status-error';
+                }
+                if (queryOutput) {
+                    if (result.valid) {
+                        queryOutput.innerHTML = '<div class="info-message">Cypher generated. Run it with "Execute Graph Query" or use "Ask &amp; Execute" to run in one step.</div>';
+                    } else {
+                        queryOutput.innerHTML = '<div class="info-message">Generated Cypher has validation errors (see above). Fix the query or try rephrasing your question.</div>';
+                    }
+                }
+            } catch (e) {
+                showGraphQueryError('Error: ' + (e.message || String(e)));
+            }
+        }
+        
+        function setNLStepStatus(stepIndex, status) {
+            var container = document.getElementById('nl-steps-container');
+            if (!container) return;
+            var step = container.querySelector('[data-step="' + stepIndex + '"]');
+            if (!step) return;
+            step.className = 'nl-step nl-step-' + status;
+        }
+
+        async function executeNLAskAndExecute() {
+            const input = document.getElementById('nl-query-input');
+            const query = (input && input.value) ? input.value.trim() : '';
+            const queryOutput = document.getElementById('graph-query-output');
+            const queryStatus = document.getElementById('graph-query-status');
+            const queryTime = document.getElementById('graph-query-time');
+            const viewCypherBtn = document.getElementById('view-generated-cypher-btn');
+            if (!query) {
+                showGraphQueryError('Please enter a natural language question.');
+                return;
+            }
+            const token = authToken || localStorage.getItem('authToken');
+            if (!token) {
+                showGraphQueryError('Please log in to use natural language queries.');
+                return;
+            }
+            queryTime.textContent = '';
+            var stepsHtml = '<div id="nl-steps-container" class="nl-steps">' +
+                '<div class="nl-step nl-step-active" data-step="1"><span class="nl-step-dot"></span><span class="nl-step-label">Fetching schema</span></div>' +
+                '<div class="nl-step nl-step-pending" data-step="2"><span class="nl-step-dot"></span><span class="nl-step-label">Analyzing question &amp; generating Cypher</span></div>' +
+                '<div class="nl-step nl-step-pending" data-step="3"><span class="nl-step-dot"></span><span class="nl-step-label">Validating against schema</span></div>' +
+                '<div class="nl-step nl-step-pending" data-step="4"><span class="nl-step-dot"></span><span class="nl-step-label">Executing query</span></div>' +
+                '</div>';
+            queryOutput.innerHTML = '<div class="loading">' + stepsHtml + '</div>';
+            queryStatus.textContent = 'Running…';
+            queryStatus.className = '';
+            // Update generated Cypher area immediately so each new question visibly refreshes the UI
+            var nlBlock = document.getElementById('nl-generated-cypher');
+            var cypherPreEl = document.getElementById('nl-cypher-text');
+            if (nlBlock) nlBlock.style.display = 'block';
+            if (cypherPreEl) cypherPreEl.textContent = 'Generating…';
+            if (viewCypherBtn) { viewCypherBtn.style.display = 'inline-block'; viewCypherBtn.textContent = 'Hide generated Cypher'; }
+            var headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token };
+            try {
+                setNLStepStatus(1, 'active');
+                var schemaRes = await fetch(JSON_API_URL + '/query/graph/schema', { headers: { 'Authorization': 'Bearer ' + token } });
+                if (!schemaRes.ok) {
+                    var t = await schemaRes.text();
+                    var d = {};
+                    try { d = JSON.parse(t); } catch (_) {}
+                    showGraphQueryError((d.detail) ? d.detail : (schemaRes.statusText || t || 'Failed to fetch schema'));
+                    setNLStepStatus(1, 'error');
+                    return;
+                }
+                setNLStepStatus(1, 'done');
+                setNLStepStatus(2, 'active');
+
+                var nlRes = await fetch(JSON_API_URL + '/query/graph/natural-language', {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({ query: query, execute: false })
+                });
+                var nlText = await nlRes.text();
+                var nlResult = {};
+                try { nlResult = JSON.parse(nlText); } catch (_) {}
+                if (!nlRes.ok) {
+                    if (cypherPreEl) cypherPreEl.textContent = '(failed to generate Cypher – see message below)';
+                    showGraphQueryError((nlResult.detail) ? nlResult.detail : (nlRes.statusText || nlText || 'Failed to generate Cypher'));
+                    setNLStepStatus(2, 'error');
+                    setNLStepStatus(3, 'error');
+                    return;
+                }
+                if (!nlResult.valid) {
+                    if (cypherPreEl) cypherPreEl.textContent = (nlResult.cypher || '').trim() || '(invalid Cypher – see message below)';
+                    showGraphQueryError((nlResult.validation_errors && nlResult.validation_errors.length) ? nlResult.validation_errors.join(' ') : 'Generated Cypher is invalid.');
+                    setNLStepStatus(2, 'error');
+                    setNLStepStatus(3, 'error');
+                    return;
+                }
+                setNLStepStatus(2, 'done');
+                setNLStepStatus(3, 'done');
+                setNLStepStatus(4, 'active');
+
+                var cypher = nlResult.cypher || '';
+                document.getElementById('graph-query-input').value = cypher;
+                if (nlBlock) nlBlock.style.display = 'block';
+                if (cypherPreEl) cypherPreEl.textContent = cypher;
+                var errDiv = document.getElementById('nl-validation-errors');
+                if (errDiv) { errDiv.innerHTML = cypher ? 'Cypher is valid for the current schema.' : ''; errDiv.className = 'nl-validation-errors'; }
+                if (viewCypherBtn) {
+                    viewCypherBtn.style.display = 'inline-block';
+                    viewCypherBtn.textContent = 'Hide generated Cypher';
+                }
+
+                var execRes = await fetch(JSON_API_URL + '/query/graph', {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({ query: cypher, type: 'cypher' })
+                });
+                var execText = await execRes.text();
+                var execResult = {};
+                try { execResult = JSON.parse(execText); } catch (_) {}
+                if (!execRes.ok) {
+                    showGraphQueryError((execResult.detail) ? execResult.detail : (execRes.statusText || execText || 'Query execution failed'));
+                    setNLStepStatus(4, 'error');
+                    return;
+                }
+                setNLStepStatus(4, 'done');
+                queryStatus.textContent = (execResult.success) ? 'Success' : 'Error';
+                queryStatus.className = (execResult.success) ? 'status-success' : 'status-error';
+                queryTime.textContent = (execResult.execution_time_ms != null) ? 'Execution time: ' + execResult.execution_time_ms.toFixed(2) + 'ms' : '';
+                if (execResult.success && execResult.data) {
+                    displayGraphQueryResults(execResult.data, 'cypher');
+                } else {
+                    queryOutput.innerHTML = '<div class="error-message">' + escapeHtml(execResult.detail || execResult.error || 'No data returned') + '</div>';
+                }
+            } catch (e) {
+                showGraphQueryError('Error: ' + (e.message || String(e)));
+                queryTime.textContent = '';
+            }
         }
         
         function showGraphQueryError(message) {

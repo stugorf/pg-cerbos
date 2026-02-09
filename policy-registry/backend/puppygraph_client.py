@@ -23,6 +23,48 @@ except ImportError:
     NEO4J_AVAILABLE = False
     logging.warning("Neo4j driver not available. Install with: pip install neo4j")
 
+# Neo4j temporal types (for JSON-safe conversion)
+try:
+    import neo4j.time
+    NEO4J_TIME_AVAILABLE = True
+except ImportError:
+    NEO4J_TIME_AVAILABLE = False
+
+
+def _make_cypher_value_json_safe(value: Any) -> Any:
+    """
+    Convert Neo4j temporal and other non-JSON-serializable values to JSON-safe form.
+    So the API returns ISO date strings instead of objects that become [object Object] in JS.
+    """
+    if value is None:
+        return value
+    if NEO4J_TIME_AVAILABLE:
+        mod = neo4j.time
+        temporal_types = tuple(
+            t for t in (getattr(mod, "DateTime", None), getattr(mod, "Date", None), getattr(mod, "Time", None))
+            if t is not None
+        )
+        if temporal_types and isinstance(value, temporal_types):
+            if hasattr(value, "iso_format"):
+                return value.iso_format()
+            if hasattr(value, "to_native"):
+                native = value.to_native()
+                return native.isoformat() if hasattr(native, "isoformat") else str(native)
+            return str(value)
+        if type(value).__name__ == "Duration" and hasattr(value, "iso_format"):
+            return value.iso_format()
+    # Fallback: any object with iso_format (e.g. some wrappers)
+    if hasattr(value, "iso_format") and callable(getattr(value, "iso_format")):
+        return value.iso_format()
+    if hasattr(value, "isoformat") and callable(getattr(value, "isoformat")):
+        return value.isoformat()
+    return value
+
+
+def _sanitize_record(record: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert all values in a record to JSON-serializable form (e.g. Neo4j dates to ISO strings)."""
+    return {k: _make_cypher_value_json_safe(v) for k, v in record.items()}
+
 logger = logging.getLogger(__name__)
 
 # PuppyGraph configuration
@@ -93,7 +135,7 @@ class PuppyGraphClient:
                 )
                 with driver.session() as session:
                     result = session.run(query)
-                    records = [dict(record) for record in result]
+                    records = [_sanitize_record(dict(record)) for record in result]
                     driver.close()
                     return {"results": records, "columns": list(records[0].keys()) if records else []}
             except Exception as e:
@@ -152,10 +194,32 @@ class PuppyGraphClient:
             logger.error(f"PuppyGraph gremlin query failed: {e}")
             raise Exception(f"PuppyGraph query failed: {str(e)}")
     
+    def get_schema(self) -> Dict[str, Any]:
+        """
+        Retrieve the current graph schema from PuppyGraph.
+
+        PuppyGraph exposes the loaded schema at /schemajson (GET with basic auth).
+        Returns the full schema JSON including graph.vertices and graph.edges
+        for use in natural-language query analysis and Cypher validation.
+
+        Returns:
+            Schema dict with keys: catalogs, graph (vertices, edges)
+
+        Raises:
+            Exception: On request failure or non-200 response.
+        """
+        url = f"{self.base_url}/schemajson"
+        response = self.session.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        if "graph" not in data:
+            raise ValueError("PuppyGraph schema response missing 'graph'")
+        return data
+
     def health_check(self) -> bool:
         """
         Check if PuppyGraph is healthy.
-        
+
         Returns:
             True if healthy, False otherwise
         """

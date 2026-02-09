@@ -284,6 +284,37 @@ test:
 test-cov:
     python -m pytest tests/ --cov=pg_cerbos --cov-report=html --cov-report=term
 
+# Run sample complex NL queries (rule-based or LLM if OPENAI_API_KEY set)
+nl-queries:
+    @echo "🔤 Running sample NL queries (schema from puppygraph/aml-schema.json)..."
+    cd policy-registry/backend && python3 scripts/test_nl_queries.py
+
+# Show schema with credentials redacted (same function as NL-to-Cypher workflow)
+show-redacted-schema schema_file="../../puppygraph/aml-schema.json":
+    @echo "🔒 Redacted schema (credentials removed, same as LLM workflow)..."
+    cd policy-registry/backend && python3 scripts/show_redacted_schema.py "{{schema_file}}"
+
+# Run analyst-style AML NL queries only
+nl-queries-analyst:
+    @echo "🔤 Running analyst NL queries..."
+    cd policy-registry/backend && python3 scripts/test_nl_queries.py --analyst
+
+# Rebuild policy-registry backend (use after code changes to nl_to_cypher, app, etc.)
+rebuild-backend:
+    docker compose build policy-registry-backend && docker compose up -d policy-registry-backend
+
+# Test natural language to Cypher module
+test-nl-cypher:
+    @echo "🧪 Running NL-to-Cypher tests..."
+    @if docker compose ps policy-registry-backend 2>/dev/null | grep -q "Up"; then \
+        docker compose exec policy-registry-backend python -m pytest test_nl_to_cypher.py -v; \
+    elif command -v uv >/dev/null 2>&1; then \
+        cd policy-registry/backend && uv run pytest test_nl_to_cypher.py -v 2>/dev/null || \
+        (uv pip install -r requirements.txt 2>/dev/null; uv run pytest test_nl_to_cypher.py -v); \
+    else \
+        cd policy-registry/backend && python3 -m pytest test_nl_to_cypher.py -v; \
+    fi
+
 # Test Cypher parser specifically
 test-cypher-parser:
     @echo "🧪 Running Cypher parser tests..."
