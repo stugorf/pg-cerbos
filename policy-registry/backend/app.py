@@ -1573,10 +1573,10 @@ def list_cerbos_policies(current_user: User = Depends(get_current_admin_user), d
     logger.info(f"Scanning policies directory: {policies_dir}")
     policies = []
     
-    # Find all YAML files in policies directory
+    # Find all YAML files in policies directory (include tests/ so UI matches just list-cerbos-policies)
     for root, dirs, files in os.walk(policies_dir):
-        # Skip hidden directories and test directories
-        dirs[:] = [d for d in dirs if not d.startswith('.') and d != 'tests']
+        # Skip only hidden directories
+        dirs[:] = [d for d in dirs if not d.startswith('.')]
         
         for file in files:
             if file.endswith(('.yaml', '.yml')) and not file.endswith('.bak'):
