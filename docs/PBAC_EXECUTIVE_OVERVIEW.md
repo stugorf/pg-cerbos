@@ -2,8 +2,8 @@
 ## Executive Overview
 
 **Document Version:** 2.0  
-**Date:** 2025  
-**Last Updated:** February 2025  
+**Date:** 2026
+**Last Updated:** February 2026
 **Audience:** Executive Leadership, Security Officers, Compliance Teams
 
 ---
