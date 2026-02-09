@@ -28,6 +28,7 @@ This document provides an index of all documentation files and their purposes.
 
 ## Reference Documentation
 
+- **[NATURAL_LANGUAGE_GRAPH_QUERY.md](./NATURAL_LANGUAGE_GRAPH_QUERY.md)** - Natural language to Cypher (NLI), optional OpenAI LLM setup
 - **[PORT_REFERENCE.md](./PORT_REFERENCE.md)** - Service port mappings and network architecture
 - **[POSTMAN_SETUP.md](./POSTMAN_SETUP.md)** - Postman API testing setup
 - **[PUPPYGRAPH_SCHEMA_RESOLUTION_AND_TESTING.md](./PUPPYGRAPH_SCHEMA_RESOLUTION_AND_TESTING.md)** - PuppyGraph schema setup and testing guide

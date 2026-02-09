@@ -131,6 +131,10 @@ services:
       SECRET_KEY: ${SECRET_KEY:-your-secret-key-change-in-production}
       TRINO_URL: http://trino-coordinator:8080/v1/statement
       CERBOS_URL: cerbos:3593
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      OPENAI_MODEL_CYPHER: ${OPENAI_MODEL_CYPHER:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
     ports: ["8082:8080"]
     volumes:
       - ./cerbos/policies:/policies:ro
