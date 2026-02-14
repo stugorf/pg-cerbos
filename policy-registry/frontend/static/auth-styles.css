@@ -2043,6 +2043,42 @@ body {
     margin-top: 20px;
 }
 
+/* Dedicated Charts section in Graph Query UI */
+.graph-query-charts-section {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid #e1e5e9;
+}
+.graph-query-charts-section-title {
+    margin: 0 0 12px 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #333;
+}
+.graph-query-chart-container {
+    min-height: 120px;
+    padding: 16px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e1e5e9;
+}
+.graph-query-chart-placeholder {
+    margin: 0;
+    color: #6c757d;
+    font-size: 14px;
+}
+
+.graph-query-chart-wrap {
+    margin-top: 24px;
+    padding-top: 20px;
+    border-top: 1px solid #e1e5e9;
+}
+.graph-query-chart-title {
+    margin: 0 0 12px 0;
+    font-size: 1rem;
+    color: #333;
+}
+
 .json-results {
     background: #f8f9fa;
     padding: 15px;

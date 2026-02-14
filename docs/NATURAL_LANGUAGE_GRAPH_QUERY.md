@@ -25,6 +25,7 @@ For best quality and complex phrasing, set **`OPENAI_API_KEY`** so the backend u
    - **`OPENAI_API_KEY`** (required for LLM) – Your OpenAI API key.
    - **`OPENAI_MODEL`** (optional) – Default model for most LLM calls; default `gpt-4o-mini`.
    - **`OPENAI_MODEL_CYPHER`** (optional) – Model used only for natural-language-to-Cypher generation (e.g. a stronger 5.2 model). If unset, falls back to `OPENAI_MODEL` then `gpt-4o-mini`.
+   - **`OPENAI_MODEL_CHART`** (optional) – Model used for chart type suggestion and ECharts option generation. If unset, falls back to `OPENAI_MODEL_CYPHER`, then `OPENAI_MODEL`, then `gpt-4o-mini`.
    - **`OPENAI_BASE_URL`** (optional) – Override API base URL (e.g. Azure or custom endpoint).
 
 Example `.env`:
@@ -33,6 +34,7 @@ Example `.env`:
 OPENAI_API_KEY=sk-...
 # OPENAI_MODEL=gpt-4o-mini
 # OPENAI_MODEL_CYPHER=gpt-4.2
+# OPENAI_MODEL_CHART=gpt-4o-mini
 # OPENAI_BASE_URL=
 ```
 
@@ -45,6 +47,23 @@ OPENAI_API_KEY=sk-...
 - **Validation then retry**: Generated Cypher is validated (labels, relationships, properties). If invalid, the LLM is called once more with the validation errors and the same schema + question.
 - **Fallback**: If the LLM is unavailable or still invalid after retry, rule-based generation runs. The same validations apply to rule-based Cypher.
 - **PuppyGraph compatibility**: Use `validate_with_puppygraph: true` in the natural-language request body to run the query against PuppyGraph and surface execution errors as validation errors.
+
+## Charts (Apache ECharts)
+
+When `OPENAI_API_KEY` is set, the backend uses the same LLM to suggest how to visualize results and to generate **Apache ECharts** option JSON. This applies to both **direct Cypher execution** (Execute Graph Query) and **natural language** (Ask & Execute).
+
+- **Result types** (chosen by the LLM from the user question/query and result shape):
+  - **Table only** – No chart; results are shown only in the HTML table.
+  - **Table + graph** – Table plus an ECharts **graph** (nodes and relationships).
+  - **Table + traditional** – Table plus a **bar**, **line**, or **pie** chart.
+
+- **Chart types you can get:**
+  - **Bar** – Categories with values (e.g. “bar chart of alert types”, “transaction amounts”).
+  - **Line** – Time series or ordered data (e.g. “line chart of amounts over time”). Ask explicitly for “line chart” or let the LLM choose when the result looks like a time series.
+  - **Pie** – Proportions (e.g. “pie chart of risk by customer”). Ask for “pie chart” or the LLM may choose it for proportional data.
+  - **Graph** – Nodes and edges (e.g. “show me customers and their accounts”, “graph of relationships”).
+
+The LLM receives the query (or natural language question), result columns, and a sample of rows, and returns `chart_type`, optional `chart_subtype` (bar/line/pie), and a full `echarts_option` when a chart is suggested. The model used is `OPENAI_MODEL_CHART` (or `OPENAI_MODEL_CYPHER` / `OPENAI_MODEL` if unset). The frontend (Graph Query tab) renders the table and, when present, the chart below it using ECharts. If the LLM is unavailable or chart suggestion fails, only the table is shown.
 
 ## Example complex queries
 

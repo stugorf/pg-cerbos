@@ -299,6 +299,17 @@ nl-queries-analyst:
     @echo "🔤 Running analyst NL queries..."
     cd policy-registry/backend && python3 scripts/test_nl_queries.py --analyst
 
+# Download ECharts into frontend static (so charts work without CDN). Run once or when upgrading.
+frontend-echarts:
+    @echo "📥 Downloading ECharts 5.5.0 to policy-registry/frontend/static/echarts.min.js..."
+    curl -sL -o policy-registry/frontend/static/echarts.min.js "https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"
+    @echo "✅ Done. Rebuild frontend if using Docker: just rebuild policy-registry-frontend"
+
+# Call NL endpoint "Show me a bar chart of Alert types" and evaluate chart_type/echarts_option in response
+test-chart-nl:
+    @echo "📊 Testing chart NL query against API (default http://localhost:8082)..."
+    bash scripts/test_chart_nl_query.sh
+
 # Rebuild policy-registry backend (use after code changes to nl_to_cypher, app, etc.)
 rebuild-backend:
     docker compose build policy-registry-backend && docker compose up -d policy-registry-backend
