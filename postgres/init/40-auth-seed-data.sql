@@ -1,6 +1,8 @@
 -- Seed data for Authentication and Authorization System
 -- This file populates the auth tables with initial data for the pg-cerbos project
 
+\c policy_store;
+
 -- Insert roles
 INSERT INTO roles (name, description) VALUES
     ('admin', 'System administrator with full access'),

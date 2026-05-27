@@ -1,6 +1,8 @@
 -- Authentication and Authorization Schema
 -- This file sets up the user management system for the UES MVP
 
+\c policy_store;
+
 -- Create users table
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
