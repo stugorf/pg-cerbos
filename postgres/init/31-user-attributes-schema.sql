@@ -2,6 +2,8 @@
 -- This file creates the user_attributes table for Phase 3: Enhanced ABAC
 -- Stores team, region, clearance_level, and department attributes for users
 
+\c policy_store;
+
 -- Create user_attributes table
 CREATE TABLE IF NOT EXISTS user_attributes (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

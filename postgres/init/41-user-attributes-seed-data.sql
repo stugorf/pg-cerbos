@@ -2,6 +2,25 @@
 -- This file populates user_attributes table for Phase 3: Enhanced ABAC
 -- Provides test data for team-based, region-based, and clearance-based access control
 
+\c policy_store;
+
+-- Ensure AML roles and users exist before attributes are assigned. The full AML
+-- seed file also runs later, so these inserts intentionally mirror its keys.
+INSERT INTO roles (name, description) VALUES
+    ('aml_analyst', 'AML analyst with basic graph query access'),
+    ('aml_analyst_junior', 'Junior AML analyst with limited graph query access (max 2 hops, no SAR)'),
+    ('aml_analyst_senior', 'Senior AML analyst with extended graph query access (max 4 hops, no SAR)'),
+    ('aml_manager', 'AML manager with full graph query access'),
+    ('aml_manager_full', 'AML manager with full permissions (derived role)')
+ON CONFLICT (name) DO NOTHING;
+
+INSERT INTO users (email, password_hash, first_name, last_name, is_active) VALUES
+    ('analyst.junior@pg-cerbos.com', '$2b$12$PJUV7BHtKSRW.eP2CGwlUOE.mEsnmWPTrFXDzWbPWq2u89093WkAq', 'Junior', 'Analyst', TRUE),
+    ('analyst.senior@pg-cerbos.com', '$2b$12$PJUV7BHtKSRW.eP2CGwlUOE.mEsnmWPTrFXDzWbPWq2u89093WkAq', 'Senior', 'Analyst', TRUE),
+    ('analyst@pg-cerbos.com', '$2b$12$PJUV7BHtKSRW.eP2CGwlUOE.mEsnmWPTrFXDzWbPWq2u89093WkAq', 'Regular', 'Analyst', TRUE),
+    ('manager@pg-cerbos.com', '$2b$12$PJUV7BHtKSRW.eP2CGwlUOE.mEsnmWPTrFXDzWbPWq2u89093WkAq', 'AML', 'Manager', TRUE)
+ON CONFLICT (email) DO UPDATE SET is_active = TRUE;
+
 -- Admin user: full clearance, no team restrictions
 INSERT INTO user_attributes (user_id, team, region, clearance_level, department) VALUES
     ((SELECT id FROM users WHERE email = 'admin@pg-cerbos.com'), 

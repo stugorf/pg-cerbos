@@ -1,11 +1,24 @@
 -- Create databases for UES MVP
-CREATE DATABASE demo_data;
-CREATE DATABASE policy_store;
-CREATE DATABASE query_results;
-CREATE DATABASE nessie;
+SELECT 'CREATE DATABASE demo_data'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'demo_data')\gexec
+
+SELECT 'CREATE DATABASE policy_store'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'policy_store')\gexec
+
+SELECT 'CREATE DATABASE query_results'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'query_results')\gexec
+
+SELECT 'CREATE DATABASE nessie'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'nessie')\gexec
 
 -- Create nessie user and grant permissions
-CREATE USER nessie WITH PASSWORD 'nessie';
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'nessie') THEN
+        CREATE USER nessie WITH PASSWORD 'nessie';
+    END IF;
+END
+$$;
 GRANT ALL PRIVILEGES ON DATABASE nessie TO nessie;
 ALTER USER nessie CREATEDB;
 

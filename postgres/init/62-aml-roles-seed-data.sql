@@ -1,6 +1,8 @@
 -- AML Roles and User Seed Data
 -- This file adds AML-specific roles and users for testing Phase 2: Enhanced RBAC
 
+\c policy_store;
+
 -- Insert AML roles
 INSERT INTO roles (name, description) VALUES
     ('aml_analyst', 'AML analyst with basic graph query access'),

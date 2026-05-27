@@ -903,6 +903,17 @@ body {
     gap: 8px;
 }
 
+.graph-saved-query-item {
+    align-items: flex-start;
+}
+
+.saved-query-description {
+    margin: 8px 0 0;
+    color: #495057;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
 /* Responsive Design */
 @media (max-width: 768px) {
     .container {

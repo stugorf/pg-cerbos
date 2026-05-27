@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>PG CERBOS - Authentication</title>
-    <link rel="stylesheet" href="auth-styles.css?v=1.0.5">
+    <link rel="stylesheet" href="auth-styles.css?v=1.0.6">
     <script>window.API_BASE = (new URL(document.location)).searchParams.get("api") || "http://localhost:8082";</script>
     <!-- ECharts must load before Monaco's AMD loader (vs/loader.js) to avoid "one anonymous define per script" error -->
     <script src="/echarts.min.js"></script>
@@ -155,6 +155,7 @@
                             <div class="query-controls">
                                 <button id="execute-graph-query-btn" class="btn btn-primary">Execute Graph Query</button>
                                 <button id="clear-graph-query-btn" class="btn btn-secondary">Clear</button>
+                                <button id="load-saved-graph-queries-btn" class="btn btn-secondary">Load Saved Query</button>
                             </div>
                             <div class="form-group nl-query-section">
                                 <label>Or ask in natural language</label>
@@ -452,7 +453,7 @@
         const API_BASE = (new URL(document.location)).searchParams.get("api") || "http://localhost:8082";
         const ENVOY_URL = "http://localhost:8081"; // Legacy - not used anymore
         const JSON_API_URL = "http://localhost:8082"; // New JSON API endpoint
-        const VERSION = "1.0.5"; // Cache busting version - Added Cerbos Logs viewer and gRPC client
+        const VERSION = "1.0.6"; // Cache busting version - Added graph saved query examples
         const TIMESTAMP = Date.now(); // Force cache refresh
         const BUILD_ID = "20260126_1200"; // Build date: Jan 26, 2026 - Cerbos authorization logging feature
             
@@ -466,6 +467,48 @@
         let authToken = null;
         let queryHistory = [];
         let savedQueries = [];
+        const graphSavedQueries = [
+            {
+                name: 'High-value transactions by customer',
+                type: 'cypher',
+                description: 'Find customers connected to transactions above the AML review threshold.',
+                query: `MATCH (c:Customer)-[:OWNS]->(a:Account)-[:SENT_TXN]->(t:Transaction)
+WHERE t.amount > 50000
+RETURN c.name AS customer, a.account_id AS account, t.transaction_id AS transaction, t.amount AS amount, t.timestamp AS timestamp
+ORDER BY t.amount DESC
+LIMIT 25`
+            },
+            {
+                name: 'Open alerts with customer risk',
+                type: 'cypher',
+                description: 'Review alerts alongside the customers and risk ratings they are associated with.',
+                query: `MATCH (c:Customer)-[:TRIGGERED]->(alert:Alert)
+RETURN c.customer_id AS customer_id, c.name AS customer, c.risk_rating AS risk_rating, alert.alert_id AS alert_id, alert.status AS status, alert.severity AS severity
+ORDER BY alert.severity DESC, c.risk_rating DESC
+LIMIT 25`
+            },
+            {
+                name: 'Case investigation network',
+                type: 'cypher',
+                description: 'Show cases, linked alerts, customers, accounts, and related transactions for investigation review.',
+                query: `MATCH (case:Case)-[:INVESTIGATES]->(alert:Alert)<-[:TRIGGERED]-(c:Customer)-[:OWNS]->(a:Account)
+OPTIONAL MATCH (a)-[:SENT_TXN]->(t:Transaction)
+RETURN case.case_id AS case_id, alert.alert_id AS alert_id, c.name AS customer, a.account_id AS account, t.transaction_id AS transaction, t.amount AS amount
+LIMIT 50`
+            },
+            {
+                name: 'Customer account paths',
+                type: 'gremlin',
+                description: 'Load a Gremlin traversal that walks from customers to owned accounts.',
+                query: `g.V().hasLabel('Customer').outE('OWNS').inV().path().by(valueMap(true)).limit(25)`
+            },
+            {
+                name: 'Large transaction traversal',
+                type: 'gremlin',
+                description: 'Find customers whose accounts sent transactions greater than 50000.',
+                query: `g.V().hasLabel('Customer').as('customer').out('OWNS').out('SENT_TXN').has('amount', gt(50000)).select('customer').valueMap(true).limit(25)`
+            }
+        ];
 
         // DOM Elements
         const loginSection = document.getElementById('login-section');
@@ -581,6 +624,7 @@
             console.log('Initializing dashboard components...');
             // Initialize dashboard components
             initializeSQLQueryInterface();
+            initializeGraphQueryInterface();
             initializePolicyEditor();
             initializeTabs();
             if (currentUser.roles.includes('admin')) {
@@ -1808,20 +1852,6 @@ Last Updated: ${new Date().toLocaleString()}`;
                 refreshArchBtn.addEventListener('click', loadArchitectureDiagram);
             }
             
-            // Initialize graph query button
-            const executeGraphQueryBtn = document.getElementById('execute-graph-query-btn');
-            if (executeGraphQueryBtn) {
-                executeGraphQueryBtn.addEventListener('click', executeGraphQuery);
-            }
-            
-            const clearGraphQueryBtn = document.getElementById('clear-graph-query-btn');
-            if (clearGraphQueryBtn) {
-                clearGraphQueryBtn.addEventListener('click', () => {
-                    document.getElementById('graph-query-input').value = '';
-                    document.getElementById('graph-query-output').innerHTML = '<div class="no-query-message"><p>Enter a Cypher or Gremlin query above and click "Execute Graph Query" to see results</p></div>';
-                    resetGraphQueryChartsSection();
-                });
-            }
             const nlGenerateBtn = document.getElementById('nl-generate-cypher-btn');
             if (nlGenerateBtn) nlGenerateBtn.addEventListener('click', executeNLGenerateCypher);
             const nlAskExecuteBtn = document.getElementById('nl-ask-execute-btn');
@@ -1834,6 +1864,56 @@ Last Updated: ${new Date().toLocaleString()}`;
         }
         
         // Graph Query Functions
+        function initializeGraphQueryInterface() {
+            const executeGraphQueryBtn = document.getElementById('execute-graph-query-btn');
+            const clearGraphQueryBtn = document.getElementById('clear-graph-query-btn');
+            const loadGraphQueriesBtn = document.getElementById('load-saved-graph-queries-btn');
+
+            if (executeGraphQueryBtn) executeGraphQueryBtn.onclick = executeGraphQuery;
+            if (clearGraphQueryBtn) clearGraphQueryBtn.onclick = clearGraphQuery;
+            if (loadGraphQueriesBtn) loadGraphQueriesBtn.onclick = showSavedGraphQueries;
+        }
+
+        function clearGraphQuery() {
+            document.getElementById('graph-query-input').value = '';
+            document.getElementById('graph-query-output').innerHTML = '<div class="no-query-message"><p>Enter a Cypher or Gremlin query above and click "Execute Graph Query" to see results</p></div>';
+            document.getElementById('graph-query-status').textContent = '';
+            document.getElementById('graph-query-time').textContent = '';
+            resetGraphQueryChartsSection();
+        }
+
+        function showSavedGraphQueries() {
+            const content = `
+                <div class="saved-queries-list">
+                    <h4>Saved Graph Queries</h4>
+                    ${graphSavedQueries.map((sq, index) => `
+                        <div class="saved-query-item graph-saved-query-item">
+                            <div class="saved-query-info">
+                                <strong>${escapeHtml(sq.name)}</strong>
+                                <span class="saved-query-time">${sq.type === 'cypher' ? 'openCypher' : 'Gremlin'}</span>
+                                <p class="saved-query-description">${escapeHtml(sq.description)}</p>
+                            </div>
+                            <div class="saved-query-actions">
+                                <button onclick="loadSavedGraphQuery(${index})" class="btn btn-small">Load</button>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+            showModal('Load Saved Graph Query', content);
+        }
+
+        function loadSavedGraphQuery(index) {
+            const savedQuery = graphSavedQueries[index];
+            if (!savedQuery) return;
+
+            document.getElementById('graph-query-type').value = savedQuery.type;
+            document.getElementById('graph-query-input').value = savedQuery.query;
+            document.getElementById('graph-query-status').textContent = '';
+            document.getElementById('graph-query-time').textContent = '';
+            hideModal();
+        }
+
         async function executeGraphQuery() {
             const queryInput = document.getElementById('graph-query-input');
             const queryType = document.getElementById('graph-query-type').value;
