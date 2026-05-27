@@ -134,6 +134,7 @@ services:
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
       OPENAI_MODEL_CYPHER: ${OPENAI_MODEL_CYPHER:-}
+      OPENAI_MODEL_CHART: ${OPENAI_MODEL_CHART:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
     ports: ["8082:8080"]
     volumes:

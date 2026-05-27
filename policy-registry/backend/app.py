@@ -893,6 +893,20 @@ def natural_language_graph_query(
         pg = get_puppygraph_client()
         data = pg.execute_cypher(query)
         elapsed_ms = (time.time() - start) * 1000
+
+        # Optional: suggest chart type and ECharts option via LLM (NL path: use user question as context)
+        chart_info = {"chart_type": "table_only", "chart_subtype": None, "echarts_option": None}
+        try:
+            from chart_suggestion import suggest_chart_and_echarts
+            logger.info("Chart suggestion: calling for NL query (execute=True)")
+            chart_info = suggest_chart_and_echarts(query_text, data, is_natural_language=True)
+            if chart_info.get("chart_type") != "table_only":
+                logger.info("Chart suggestion: type=%s subtype=%s has_option=%s", chart_info.get("chart_type"), chart_info.get("chart_subtype"), chart_info.get("echarts_option") is not None)
+            else:
+                logger.info("Chart suggestion: returned table_only")
+        except Exception as chart_err:
+            logger.info("Chart suggestion skipped: %s", chart_err)
+
         return {
             "success": True,
             "cypher": result["cypher"],
@@ -902,6 +916,9 @@ def natural_language_graph_query(
             "executed": True,
             "data": data,
             "execution_time_ms": elapsed_ms,
+            "chart_type": chart_info.get("chart_type", "table_only"),
+            "chart_subtype": chart_info.get("chart_subtype"),
+            "echarts_option": chart_info.get("echarts_option"),
         }
     except Exception as e:
         logger.error(f"NL graph query execution failed: {e}", exc_info=True)
@@ -1032,7 +1049,20 @@ def execute_graph_query(
             result = puppygraph.execute_gremlin(query)
         
         execution_time = (time.time() - start_time) * 1000
-        
+
+        # Optional: suggest chart type and ECharts option via LLM (Cypher path: use query as context)
+        chart_info = {"chart_type": "table_only", "chart_subtype": None, "echarts_option": None}
+        try:
+            from chart_suggestion import suggest_chart_and_echarts
+            logger.info("Chart suggestion: calling for Cypher execute")
+            chart_info = suggest_chart_and_echarts(query, result, is_natural_language=False)
+            if chart_info.get("chart_type") != "table_only":
+                logger.info("Chart suggestion: type=%s subtype=%s has_option=%s", chart_info.get("chart_type"), chart_info.get("chart_subtype"), chart_info.get("echarts_option") is not None)
+            else:
+                logger.info("Chart suggestion: returned table_only")
+        except Exception as chart_err:
+            logger.info("Chart suggestion skipped: %s", chart_err)
+
         # Parse and return result
         # PuppyGraph response format may vary, return raw result for now
         return {
@@ -1040,7 +1070,10 @@ def execute_graph_query(
             "data": result,
             "query_type": query_type,
             "execution_time_ms": execution_time,
-            "query": query
+            "query": query,
+            "chart_type": chart_info.get("chart_type", "table_only"),
+            "chart_subtype": chart_info.get("chart_subtype"),
+            "echarts_option": chart_info.get("echarts_option"),
         }
     except Exception as e:
         logger.error(f"Graph query failed: {e}", exc_info=True)

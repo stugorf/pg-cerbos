@@ -9,6 +9,8 @@
     <title>PG CERBOS - Authentication</title>
     <link rel="stylesheet" href="auth-styles.css?v=1.0.5">
     <script>window.API_BASE = (new URL(document.location)).searchParams.get("api") || "http://localhost:8082";</script>
+    <!-- ECharts must load before Monaco's AMD loader (vs/loader.js) to avoid "one anonymous define per script" error -->
+    <script src="/echarts.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
 </head>
 <body>
@@ -190,6 +192,12 @@
                                         • Queries access PostgreSQL data through PuppyGraph's graph mapping<br>
                                         • See <a href="http://localhost:8081" target="_blank">PuppyGraph Web UI</a> for schema visualization
                                     </p>
+                                </div>
+                            </div>
+                            <div id="graph-query-charts-section" class="graph-query-charts-section">
+                                <h4 class="graph-query-charts-section-title">Charts</h4>
+                                <div id="graph-query-chart-container" class="graph-query-chart-container">
+                                    <p class="graph-query-chart-placeholder">Charts appear here when a query returns chart data (e.g. bar chart of amounts, graph of relationships).</p>
                                 </div>
                             </div>
                         </div>
@@ -1811,6 +1819,7 @@ Last Updated: ${new Date().toLocaleString()}`;
                 clearGraphQueryBtn.addEventListener('click', () => {
                     document.getElementById('graph-query-input').value = '';
                     document.getElementById('graph-query-output').innerHTML = '<div class="no-query-message"><p>Enter a Cypher or Gremlin query above and click "Execute Graph Query" to see results</p></div>';
+                    resetGraphQueryChartsSection();
                 });
             }
             const nlGenerateBtn = document.getElementById('nl-generate-cypher-btn');
@@ -1867,9 +1876,13 @@ Last Updated: ${new Date().toLocaleString()}`;
                     queryStatus.className = 'status-success';
                     queryTime.textContent = `Execution time: ${result.execution_time_ms?.toFixed(2) || executionTime}ms`;
                     
-                    // Display results
+                    // Display results (optionally with chart from LLM suggestion)
                     if (result.success && result.data) {
-                        displayGraphQueryResults(result.data, queryType);
+                        displayGraphQueryResults(result.data, queryType, {
+                            chartType: result.chart_type,
+                            chartSubtype: result.chart_subtype,
+                            echartsOption: result.echarts_option
+                        });
                     } else {
                         queryOutput.innerHTML = '<div class="info-message">Query executed successfully but no data returned</div>';
                     }
@@ -1900,63 +1913,135 @@ Last Updated: ${new Date().toLocaleString()}`;
             return String(val);
         }
 
-        function displayGraphQueryResults(data, queryType) {
+        // ECharts instance for graph-query chart (reused; disposed when redrawing)
+        var graphQueryChartInstance = null;
+
+        function displayGraphQueryResults(data, queryType, chartOptions) {
             const queryOutput = document.getElementById('graph-query-output');
-            
-            // PuppyGraph Cypher returns { results: [...], columns: [...] }
+            const opts = chartOptions || {};
+            const chartType = opts.chartType || 'table_only';
+            const echartsOption = opts.echartsOption || null;
+
+            // Dispose previous ECharts instance if any
+            if (graphQueryChartInstance) {
+                try { graphQueryChartInstance.dispose(); } catch (e) {}
+                graphQueryChartInstance = null;
+            }
+
+            // Build table HTML first
+            let tableHtml = '';
             if (data && typeof data === 'object' && Array.isArray(data.results) && Array.isArray(data.columns)) {
                 const rows = data.results;
                 const columns = data.columns;
-                let html = '<div class="graph-results"><table class="results-table"><thead><tr>';
-                columns.forEach((col, colIndex) => {
+                tableHtml = '<div class="graph-results"><table class="results-table"><thead><tr>';
+                columns.forEach((col) => {
                     const name = typeof col === 'object' && col !== null && 'name' in col ? col.name : col;
-                    html += `<th>${escapeHtml(String(name))}</th>`;
+                    tableHtml += `<th>${escapeHtml(String(name))}</th>`;
                 });
-                html += '</tr></thead><tbody>';
+                tableHtml += '</tr></thead><tbody>';
                 rows.forEach(row => {
-                    html += '<tr>';
+                    tableHtml += '<tr>';
                     columns.forEach((col, colIndex) => {
                         const key = typeof col === 'object' && col !== null && 'name' in col ? col.name : col;
                         let val = row[key];
                         if (val === undefined && Array.isArray(row)) val = row[colIndex];
                         const display = formatGraphCellValue(val);
-                        html += `<td>${escapeHtml(display)}</td>`;
+                        tableHtml += `<td>${escapeHtml(display)}</td>`;
                     });
-                    html += '</tr>';
+                    tableHtml += '</tr>';
                 });
-                html += '</tbody></table></div>';
-                queryOutput.innerHTML = html;
-                return;
-            }
-            
-            let html = '<div class="graph-results">';
-            if (Array.isArray(data)) {
-                html += '<table class="results-table"><thead><tr>';
-                if (data.length > 0 && typeof data[0] === 'object') {
-                    Object.keys(data[0]).forEach(key => {
-                        html += `<th>${escapeHtml(key)}</th>`;
-                    });
-                }
-                html += '</tr></thead><tbody>';
-                data.forEach(row => {
-                    html += '<tr>';
-                    if (typeof row === 'object') {
-                        Object.values(row).forEach(val => {
-                            html += `<td>${val !== null && val !== undefined ? escapeHtml(JSON.stringify(val)) : ''}</td>`;
-                        });
-                    } else {
-                        html += `<td>${escapeHtml(String(row))}</td>`;
-                    }
-                    html += '</tr>';
-                });
-                html += '</tbody></table>';
-            } else if (typeof data === 'object') {
-                html += '<pre class="json-results">' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
+                tableHtml += '</tbody></table></div>';
             } else {
-                html += `<div class="text-results">${escapeHtml(String(data))}</div>`;
+                tableHtml = '<div class="graph-results">';
+                if (Array.isArray(data)) {
+                    tableHtml += '<table class="results-table"><thead><tr>';
+                    if (data.length > 0 && typeof data[0] === 'object') {
+                        Object.keys(data[0]).forEach(key => { tableHtml += `<th>${escapeHtml(key)}</th>`; });
+                    }
+                    tableHtml += '</tr></thead><tbody>';
+                    data.forEach(row => {
+                        tableHtml += '<tr>';
+                        if (typeof row === 'object') {
+                            Object.values(row).forEach(val => {
+                                tableHtml += `<td>${val !== null && val !== undefined ? escapeHtml(JSON.stringify(val)) : ''}</td>`;
+                            });
+                        } else {
+                            tableHtml += `<td>${escapeHtml(String(row))}</td>`;
+                        }
+                        tableHtml += '</tr>';
+                    });
+                    tableHtml += '</tbody></table>';
+                } else if (typeof data === 'object') {
+                    tableHtml += '<pre class="json-results">' + escapeHtml(JSON.stringify(data, null, 2)) + '</pre>';
+                } else {
+                    tableHtml += `<div class="text-results">${escapeHtml(String(data))}</div>`;
+                }
+                tableHtml += '</div>';
             }
-            html += '</div>';
-            queryOutput.innerHTML = html;
+
+            queryOutput.innerHTML = tableHtml;
+
+            // Update dedicated Charts section
+            const chartsSection = document.getElementById('graph-query-charts-section');
+            const chartContainer = document.getElementById('graph-query-chart-container');
+            function getEcharts() {
+                return (typeof echarts !== 'undefined' ? echarts : null) || (typeof window !== 'undefined' && window.echarts) || (typeof globalThis !== 'undefined' && globalThis.echarts) || null;
+            }
+            const echartsLib = getEcharts();
+            const haveChartData = (chartType === 'table_and_graph' || chartType === 'table_and_traditional') && echartsOption;
+            const showChart = haveChartData && echartsLib;
+
+            function renderChartIntoContainer(opt, containerEl, chartContainerEl, chartsSectionEl) {
+                var lib = getEcharts();
+                if (!lib || !containerEl) return;
+                try {
+                    if (graphQueryChartInstance) { try { graphQueryChartInstance.dispose(); } catch (e) {} graphQueryChartInstance = null; }
+                    graphQueryChartInstance = lib.init(containerEl, null, { renderer: 'canvas' });
+                    graphQueryChartInstance.setOption(opt);
+                    if (graphQueryChartInstance.resize) graphQueryChartInstance.resize();
+                    if (chartsSectionEl) chartsSectionEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                } catch (e) {
+                    console.warn('ECharts render failed:', e);
+                    if (chartContainerEl) chartContainerEl.innerHTML = '<p class="graph-query-chart-placeholder">Chart could not be rendered. See console.</p>';
+                }
+            }
+
+            if (chartContainer) {
+                if (showChart) {
+                    chartContainer.innerHTML = '<div id="graph-query-echarts-container" style="width:100%;min-height:400px;height:400px;"></div>';
+                    const container = document.getElementById('graph-query-echarts-container');
+                    if (container && echartsLib) {
+                        var opt = echartsOption;
+                        requestAnimationFrame(function() { renderChartIntoContainer(opt, container, chartContainer, chartsSection); });
+                    }
+                } else if (haveChartData && !echartsLib) {
+                    chartContainer.innerHTML = '<p class="graph-query-chart-placeholder">Loading chart library…</p>';
+                    var script = document.createElement('script');
+                    script.src = '/echarts.min.js';
+                    script.async = false;
+                    var opt = echartsOption;
+                    script.onload = function() {
+                        var lib = getEcharts();
+                        if (!lib) {
+                            chartContainer.innerHTML = '<p class="graph-query-chart-placeholder">Chart library did not expose itself. Check browser console.</p>';
+                            return;
+                        }
+                        chartContainer.innerHTML = '<div id="graph-query-echarts-container" style="width:100%;min-height:400px;height:400px;"></div>';
+                        var container = document.getElementById('graph-query-echarts-container');
+                        requestAnimationFrame(function() { renderChartIntoContainer(opt, container, chartContainer, chartsSection); });
+                    };
+                    script.onerror = function() {
+                        chartContainer.innerHTML = '<p class="graph-query-chart-placeholder">Chart library (ECharts) could not be loaded from /echarts.min.js. Ensure the file is in the app container and rebuild the frontend image.</p>';
+                    };
+                    document.head.appendChild(script);
+                } else {
+                    chartContainer.innerHTML = '<p class="graph-query-chart-placeholder">' +
+                        ((chartType === 'table_and_graph' || chartType === 'table_and_traditional') && !echartsOption
+                            ? 'No chart data returned for this result.'
+                            : 'Charts appear here when a query returns chart data (e.g. bar chart of amounts, graph of relationships).') + '</p>';
+                }
+            }
+            if (chartsSection) chartsSection.style.display = 'block';
         }
         
         function toggleViewGeneratedCypher() {
@@ -2099,10 +2184,11 @@ Last Updated: ${new Date().toLocaleString()}`;
                 setNLStepStatus(1, 'done');
                 setNLStepStatus(2, 'active');
 
+                /* Ask & Execute: single call with execute: true so chart suggestion runs with the natural language question */
                 var nlRes = await fetch(JSON_API_URL + '/query/graph/natural-language', {
                     method: 'POST',
                     headers: headers,
-                    body: JSON.stringify({ query: query, execute: false })
+                    body: JSON.stringify({ query: query, execute: true })
                 });
                 var nlText = await nlRes.text();
                 var nlResult = {};
@@ -2112,6 +2198,7 @@ Last Updated: ${new Date().toLocaleString()}`;
                     showGraphQueryError((nlResult.detail) ? nlResult.detail : (nlRes.statusText || nlText || 'Failed to generate Cypher'));
                     setNLStepStatus(2, 'error');
                     setNLStepStatus(3, 'error');
+                    setNLStepStatus(4, 'error');
                     return;
                 }
                 if (!nlResult.valid) {
@@ -2119,6 +2206,7 @@ Last Updated: ${new Date().toLocaleString()}`;
                     showGraphQueryError((nlResult.validation_errors && nlResult.validation_errors.length) ? nlResult.validation_errors.join(' ') : 'Generated Cypher is invalid.');
                     setNLStepStatus(2, 'error');
                     setNLStepStatus(3, 'error');
+                    setNLStepStatus(4, 'error');
                     return;
                 }
                 setNLStepStatus(2, 'done');
@@ -2136,27 +2224,26 @@ Last Updated: ${new Date().toLocaleString()}`;
                     viewCypherBtn.textContent = 'Hide generated Cypher';
                 }
 
-                var execRes = await fetch(JSON_API_URL + '/query/graph', {
-                    method: 'POST',
-                    headers: headers,
-                    body: JSON.stringify({ query: cypher, type: 'cypher' })
-                });
-                var execText = await execRes.text();
-                var execResult = {};
-                try { execResult = JSON.parse(execText); } catch (_) {}
-                if (!execRes.ok) {
-                    showGraphQueryError((execResult.detail) ? execResult.detail : (execRes.statusText || execText || 'Query execution failed'));
-                    setNLStepStatus(4, 'error');
+                if (!nlResult.executed || !nlResult.data) {
+                    setNLStepStatus(4, 'done');
+                    queryStatus.textContent = nlResult.valid ? 'Cypher generated' : 'Error';
+                    queryStatus.className = nlResult.valid ? 'status-success' : 'status-error';
+                    queryTime.textContent = '';
+                    queryOutput.innerHTML = '<div class="info-message">Cypher generated. Run it with "Execute Graph Query" to see results and charts.</div>';
                     return;
                 }
                 setNLStepStatus(4, 'done');
-                queryStatus.textContent = (execResult.success) ? 'Success' : 'Error';
-                queryStatus.className = (execResult.success) ? 'status-success' : 'status-error';
-                queryTime.textContent = (execResult.execution_time_ms != null) ? 'Execution time: ' + execResult.execution_time_ms.toFixed(2) + 'ms' : '';
-                if (execResult.success && execResult.data) {
-                    displayGraphQueryResults(execResult.data, 'cypher');
+                queryStatus.textContent = (nlResult.success) ? 'Success' : 'Error';
+                queryStatus.className = (nlResult.success) ? 'status-success' : 'status-error';
+                queryTime.textContent = (nlResult.execution_time_ms != null) ? 'Execution time: ' + nlResult.execution_time_ms.toFixed(2) + 'ms' : '';
+                if (nlResult.success && nlResult.data) {
+                    displayGraphQueryResults(nlResult.data, 'cypher', {
+                        chartType: nlResult.chart_type,
+                        chartSubtype: nlResult.chart_subtype,
+                        echartsOption: nlResult.echarts_option
+                    });
                 } else {
-                    queryOutput.innerHTML = '<div class="error-message">' + escapeHtml(execResult.detail || execResult.error || 'No data returned') + '</div>';
+                    queryOutput.innerHTML = '<div class="error-message">' + escapeHtml(nlResult.detail || nlResult.error || 'No data returned') + '</div>';
                 }
             } catch (e) {
                 showGraphQueryError('Error: ' + (e.message || String(e)));
@@ -2170,6 +2257,18 @@ Last Updated: ${new Date().toLocaleString()}`;
             queryStatus.textContent = 'Error';
             queryStatus.className = 'status-error';
             queryOutput.innerHTML = `<div class="error-message">${escapeHtml(message)}</div>`;
+            resetGraphQueryChartsSection();
+        }
+
+        function resetGraphQueryChartsSection() {
+            if (graphQueryChartInstance) {
+                try { graphQueryChartInstance.dispose(); } catch (e) {}
+                graphQueryChartInstance = null;
+            }
+            const chartContainer = document.getElementById('graph-query-chart-container');
+            if (chartContainer) {
+                chartContainer.innerHTML = '<p class="graph-query-chart-placeholder">Charts appear here when a query returns chart data (e.g. bar chart of amounts, graph of relationships).</p>';
+            }
         }
         
         // AML Management Functions
