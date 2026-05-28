@@ -23,6 +23,8 @@ from query_models import Query, QueryColumn, QueryResult, QueryStat, QueryCreate
 from query_db import get_query_db, get_query_db_sync, init_query_database
 import requests
 from startup_initializer import ensure_iceberg_demo_data, get_startup_init_status
+from graph_query_analyzer import analyze_graph_query, GraphQueryAnalysisError
+from graph_engine_adapter import get_graph_engine_adapter, GraphEngineExecutionError
 try:
     from cerbos_client import get_cerbos_client
     CERBOS_CLIENT_AVAILABLE = True
@@ -887,17 +889,14 @@ def delete_policy(policy_id: int, current_user: User = Depends(get_current_user)
 # Graph schema endpoint: Retrieve schema from PuppyGraph for NL interface and validation
 @API.get("/query/graph/schema")
 def get_graph_schema(current_user: User = Depends(get_current_user)):
-    """Retrieve the current graph schema from PuppyGraph (vertices and edges)."""
+    """Retrieve the current graph schema from the configured graph engine."""
     try:
-        from puppygraph_client import get_puppygraph_client
-    except ImportError:
-        raise HTTPException(status_code=503, detail="PuppyGraph client not available.")
-    try:
-        puppygraph = get_puppygraph_client()
-        schema = puppygraph.get_schema()
+        schema = get_graph_engine_adapter().get_schema()
         return {"success": True, "schema": schema}
+    except GraphEngineExecutionError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
     except Exception as e:
-        logger.error(f"Failed to get PuppyGraph schema: {e}", exc_info=True)
+        logger.error(f"Failed to get graph schema: {e}", exc_info=True)
         raise HTTPException(status_code=502, detail=f"Failed to retrieve schema: {str(e)}")
 
 
@@ -909,13 +908,12 @@ def natural_language_graph_query(
     db: Session = Depends(get_db),
 ):
     """
-    Accept a natural language question, retrieve schema from PuppyGraph, analyze the query
+    Accept a natural language question, retrieve schema from the graph engine, analyze the query
     (entities and relationships), generate a Cypher query validated against the schema,
     and optionally execute it (with Cerbos authorization).
     """
     request_start = time.time()
     try:
-        from puppygraph_client import get_puppygraph_client
         from nl_to_cypher import nl_to_cypher
     except ImportError as ex:
         logger.warning("Natural language endpoint import failed: %s", ex)
@@ -930,10 +928,12 @@ def natural_language_graph_query(
         raise HTTPException(status_code=400, detail="Natural language query is required.")
 
     try:
-        puppygraph = get_puppygraph_client()
         schema_start = time.time()
-        schema = puppygraph.get_schema()
+        graph_engine = get_graph_engine_adapter()
+        schema = graph_engine.get_schema()
         schema_ms = (time.time() - schema_start) * 1000
+    except GraphEngineExecutionError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
     except Exception as e:
         logger.error(f"Failed to get schema: {e}", exc_info=True)
         raise HTTPException(status_code=502, detail=f"Failed to retrieve schema: {str(e)}")
@@ -968,20 +968,36 @@ def natural_language_graph_query(
             },
         }
 
-    # Optional: validate that PuppyGraph accepts the Cypher (dry run)
+    # Optional: validate that the configured graph engine accepts the Cypher (dry run)
     validate_with_puppygraph = body.get("validate_with_puppygraph", False)
     if validate_with_puppygraph and result.get("cypher"):
         try:
-            puppygraph.execute_cypher(result["cypher"])
-        except Exception as e:
+            graph_engine.execute("cypher", result["cypher"])
+        except GraphEngineExecutionError as e:
             exec_err = str(e)
-            logger.warning("PuppyGraph validation run failed: %s", exec_err)
+            logger.warning("Graph engine validation run failed: %s", exec_err)
             return {
                 "success": False,
                 "cypher": result["cypher"],
                 "analysis": result.get("analysis", {}),
                 "valid": False,
-                "validation_errors": result.get("validation_errors", []) + [f"PuppyGraph execution: {exec_err}"],
+                "validation_errors": result.get("validation_errors", []) + [f"Graph engine execution: {exec_err}"],
+                "executed": False,
+                "sequence_metrics": {
+                    "schema_ms": schema_ms,
+                    "model_ms": model_ms,
+                    "backend_ms": (time.time() - request_start) * 1000,
+                },
+            }
+        except Exception as e:
+            exec_err = str(e)
+            logger.warning("Graph engine validation run failed: %s", exec_err)
+            return {
+                "success": False,
+                "cypher": result["cypher"],
+                "analysis": result.get("analysis", {}),
+                "valid": False,
+                "validation_errors": result.get("validation_errors", []) + [f"Graph engine execution: {exec_err}"],
                 "executed": False,
                 "sequence_metrics": {
                     "schema_ms": schema_ms,
@@ -1008,40 +1024,22 @@ def natural_language_graph_query(
     # Execute via same authorization path as /query/graph
     query = result["cypher"]
     query_type = "cypher"
-    cypher_metadata = {}
-    resource_attributes = {}
     try:
-        from cypher_parser import parse_cypher_query, extract_resource_attributes
-        cypher_metadata = parse_cypher_query(query)
-        resource_attributes = extract_resource_attributes(query)
-        if "node_labels" in cypher_metadata:
-            cypher_metadata["node_labels"] = list(cypher_metadata["node_labels"])
-        if "relationship_types" in cypher_metadata:
-            cypher_metadata["relationship_types"] = list(cypher_metadata["relationship_types"])
-    except Exception:
-        pass
-    if "max_depth" not in cypher_metadata:
-        cypher_metadata["max_depth"] = 0
-    if "node_labels" not in cypher_metadata:
-        cypher_metadata["node_labels"] = []
-    if "relationship_types" not in cypher_metadata:
-        cypher_metadata["relationship_types"] = []
-    if "estimated_nodes" not in cypher_metadata:
-        cypher_metadata["estimated_nodes"] = 0
-    if "estimated_edges" not in cypher_metadata:
-        cypher_metadata["estimated_edges"] = 0
-    if "query_pattern" not in cypher_metadata:
-        cypher_metadata["query_pattern"] = "simple"
+        cerbos_attributes = analyze_graph_query(
+            language=query_type,
+            query=query,
+            schema=schema,
+            mode="read",
+        )
+    except GraphQueryAnalysisError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=f"Graph query analysis failed: {str(exc)}",
+        )
 
     cerbos_client = get_cerbos_client()
     user_roles = get_user_roles(db, current_user.id)
     user_attributes = get_user_attributes(db, current_user.id)
-    cerbos_attributes = {
-        "query_type": query_type,
-        "query": query,
-        **cypher_metadata,
-        **resource_attributes,
-    }
     cerbos_start = time.time()
     allowed, reason, policy = cerbos_client.check_resource_access(
         user_id=str(current_user.id),
@@ -1070,8 +1068,7 @@ def natural_language_graph_query(
 
     try:
         start = time.time()
-        pg = get_puppygraph_client()
-        data = pg.execute_cypher(query)
+        data = get_graph_engine_adapter().execute("cypher", query)
         elapsed_ms = (time.time() - start) * 1000
         total_backend_ms = (time.time() - request_start) * 1000
 
@@ -1108,6 +1105,8 @@ def natural_language_graph_query(
             "chart_subtype": chart_info.get("chart_subtype"),
             "echarts_option": chart_info.get("echarts_option"),
         }
+    except GraphEngineExecutionError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
     except Exception as e:
         logger.error(f"NL graph query execution failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Query execution failed: {str(e)}")
@@ -1122,62 +1121,27 @@ def execute_graph_query(
 ):
     """Execute a graph query (Cypher or Gremlin) via PuppyGraph with Cerbos authorization."""
     request_start = time.time()
-    # Check if PuppyGraph is available
-    try:
-        from puppygraph_client import get_puppygraph_client
-    except ImportError:
-        raise HTTPException(status_code=503, detail="PuppyGraph client not available. Please ensure PuppyGraph is configured.")
-    
     query = query_data.get("query", "").strip()
     query_type = query_data.get("type", "cypher").lower()  # "cypher" or "gremlin"
     
     if not query:
         raise HTTPException(status_code=400, detail="Query is required")
     
-    if query_type not in ["cypher", "gremlin"]:
-        raise HTTPException(status_code=400, detail="Query type must be 'cypher' or 'gremlin'")
-    
-    # Parse Cypher query if it's a Cypher query
-    cypher_metadata = {}
-    resource_attributes = {}
-    
-    if query_type == "cypher":
-        try:
-            from cypher_parser import parse_cypher_query, extract_resource_attributes
-            
-            # Parse query to extract metadata
-            cypher_metadata = parse_cypher_query(query)
-            
-            # Extract resource attributes from WHERE clauses
-            resource_attributes = extract_resource_attributes(query)
-            
-            # Convert sets to lists for JSON serialization
-            if "node_labels" in cypher_metadata:
-                cypher_metadata["node_labels"] = list(cypher_metadata["node_labels"])
-            if "relationship_types" in cypher_metadata:
-                cypher_metadata["relationship_types"] = list(cypher_metadata["relationship_types"])
-            
-            logger.debug(f"Parsed Cypher query metadata: {cypher_metadata}")
-            logger.debug(f"Extracted resource attributes: {resource_attributes}")
-        except ImportError:
-            logger.warning("cypher_parser module not available, skipping query parsing")
-        except Exception as e:
-            logger.warning(f"Error parsing Cypher query: {e}, continuing with basic authorization")
-    
-    # Ensure default values for policy evaluation (in case parsing failed)
-    if query_type == "cypher":
-        if "max_depth" not in cypher_metadata:
-            cypher_metadata["max_depth"] = 0
-        if "node_labels" not in cypher_metadata:
-            cypher_metadata["node_labels"] = []
-        if "relationship_types" not in cypher_metadata:
-            cypher_metadata["relationship_types"] = []
-        if "estimated_nodes" not in cypher_metadata:
-            cypher_metadata["estimated_nodes"] = 0
-        if "estimated_edges" not in cypher_metadata:
-            cypher_metadata["estimated_edges"] = 0
-        if "query_pattern" not in cypher_metadata:
-            cypher_metadata["query_pattern"] = "simple"
+    if query_type not in ["cypher", "gremlin", "sparql", "gql"]:
+        raise HTTPException(status_code=400, detail="Query type must be 'cypher', 'gremlin', 'sparql', or 'gql'")
+
+    try:
+        cerbos_attributes = analyze_graph_query(
+            language=query_type,
+            query=query,
+            mode="read",
+        )
+        logger.debug(f"Graph query analysis: {cerbos_attributes}")
+    except GraphQueryAnalysisError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=f"Graph query analysis failed: {str(exc)}",
+        )
     
     # Check authorization with Cerbos
     cerbos_client = get_cerbos_client()
@@ -1186,17 +1150,10 @@ def execute_graph_query(
     # Get user attributes for ABAC (Phase 3)
     user_attributes = get_user_attributes(db, current_user.id)
     
-    # Build resource attributes for Cerbos
-    cerbos_attributes = {
-        "query_type": query_type,
-        "query": query,
-        **cypher_metadata,
-        **resource_attributes
-    }
-    
-    # Use cypher_query resource kind for Cypher queries, transaction for backward compatibility
-    resource_kind = "cypher_query" if query_type == "cypher" else "transaction"
-    action = "execute" if query_type == "cypher" else "graph_expand"
+    # Use the existing graph resource policy for all graph languages while the
+    # analyzer contract evolves beyond Cypher.
+    resource_kind = "cypher_query"
+    action = "execute"
     
     # Check if user can execute graph queries
     cerbos_start = time.time()
@@ -1228,15 +1185,10 @@ def execute_graph_query(
     if not allowed:
         raise HTTPException(status_code=403, detail=reason or "Not authorized to execute graph queries")
     
-    # Execute graph query via PuppyGraph
+    # Execute graph query via the configured graph engine adapter
     try:
-        puppygraph = get_puppygraph_client()
         start_time = time.time()
-        
-        if query_type == "cypher":
-            result = puppygraph.execute_cypher(query)
-        else:  # gremlin
-            result = puppygraph.execute_gremlin(query)
+        result = get_graph_engine_adapter().execute(query_type, query)
         
         execution_time = (time.time() - start_time) * 1000
         total_backend_ms = (time.time() - request_start) * 1000
@@ -1271,6 +1223,10 @@ def execute_graph_query(
             "chart_subtype": chart_info.get("chart_subtype"),
             "echarts_option": chart_info.get("echarts_option"),
         }
+    except GraphEngineExecutionError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Graph query failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Graph query failed: {str(e)}")

@@ -72,19 +72,14 @@ def extract_node_labels(query: str) -> Set[str]:
     """
     labels = set()
     
-    # Pattern for node labels: (var:Label) or (:Label) or (var:Label1:Label2)
-    # Use a pattern that captures everything after the first colon until the closing paren
-    # This handles: (n:Customer), (:Customer), (n:Customer:Person)
-    node_pattern = r'\([^:)]*:([A-Za-z_][A-Za-z0-9_]*(?::[A-Za-z_][A-Za-z0-9_]*)*)\)'
-    
-    matches = re.finditer(node_pattern, query)
-    for match in matches:
-        # Extract the label part after the colon - this captures "Customer:Person" as one string
-        label_part = match.group(1)
-        # Handle multiple labels (Label1:Label2) by splitting on colon
-        for label in label_part.split(':'):
-            if label and label.strip():
-                labels.add(label.strip())
+    # Match node pattern bodies and then extract labels from each body. This
+    # handles inline properties, e.g. (c:Customer {team: 'Team A'}).
+    for match in re.finditer(r'\(([^)]*)\)', query):
+        node_body = match.group(1)
+        if ":" not in node_body:
+            continue
+        for label_match in re.finditer(r':\s*([A-Za-z_][A-Za-z0-9_]*)', node_body):
+            labels.add(label_match.group(1).strip())
     
     return labels
 
@@ -338,9 +333,9 @@ def extract_resource_attributes(query: str) -> Dict[str, Any]:
         where_clause = where_match.group(1)
         
         # Extract risk_rating - handle patterns like c.risk_rating = 'high' or risk_rating = 'high'
-        risk_match = re.search(r'(?:\.)?risk_rating\s*[=<>!]+\s*[\'"]?([^\'"\s,]+)[\'"]?', where_clause, re.IGNORECASE)
+        risk_match = re.search(r'(?:\.)?risk_rating\s*[=<>!]+\s*(?:[\'"]([^\'"]+)[\'"]|([^\'"\s,]+))', where_clause, re.IGNORECASE)
         if risk_match:
-            attributes["risk_rating"] = risk_match.group(1).strip("'\"")
+            attributes["risk_rating"] = (risk_match.group(1) or risk_match.group(2)).strip("'\"")
         
         # Extract transaction amount thresholds - handle patterns like txn.amount > 50000
         amount_matches = re.finditer(r'(?:\.)?amount\s*([<>=]+)\s*(\d+)', where_clause, re.IGNORECASE)
@@ -365,26 +360,26 @@ def extract_resource_attributes(query: str) -> Dict[str, Any]:
             attributes["pep_flag"] = False
         
         # Extract severity - handle patterns like a.severity = 'high'
-        severity_match = re.search(r'(?:\.)?severity\s*[=<>!]+\s*[\'"]?([^\'"\s,]+)[\'"]?', where_clause, re.IGNORECASE)
+        severity_match = re.search(r'(?:\.)?severity\s*[=<>!]+\s*(?:[\'"]([^\'"]+)[\'"]|([^\'"\s,]+))', where_clause, re.IGNORECASE)
         if severity_match:
-            attributes["severity"] = severity_match.group(1).strip("'\"")
+            attributes["severity"] = (severity_match.group(1) or severity_match.group(2)).strip("'\"")
         
         # Extract status
-        status_match = re.search(r'(?:\.)?status\s*[=<>!]+\s*[\'"]?([^\'"\s,]+)[\'"]?', where_clause, re.IGNORECASE)
+        status_match = re.search(r'(?:\.)?status\s*[=<>!]+\s*(?:[\'"]([^\'"]+)[\'"]|([^\'"\s,]+))', where_clause, re.IGNORECASE)
         if status_match:
-            attributes["status"] = status_match.group(1).strip("'\"")
+            attributes["status"] = (status_match.group(1) or status_match.group(2)).strip("'\"")
         
         # Extract customer_team from WHERE clauses - Phase 3: ABAC
         # Handles: c.team = 'Team A', customer.team = 'Team B', team = 'Team C'
-        team_match = re.search(r'(?:[a-zA-Z_][a-zA-Z0-9_]*\.)?team\s*[=<>!]+\s*[\'"]?([^\'"\s,]+)[\'"]?', where_clause, re.IGNORECASE)
+        team_match = re.search(r'(?:[a-zA-Z_][a-zA-Z0-9_]*\.)?team\s*[=<>!]+\s*(?:[\'"]([^\'"]+)[\'"]|([^\'"\s,]+))', where_clause, re.IGNORECASE)
         if team_match:
-            attributes["customer_team"] = team_match.group(1).strip("'\"")
+            attributes["customer_team"] = (team_match.group(1) or team_match.group(2)).strip("'\"")
         
         # Extract customer_region from WHERE clauses - Phase 3: ABAC
         # Handles: c.region = 'US', customer.region = 'EU', region = 'APAC'
-        region_match = re.search(r'(?:[a-zA-Z_][a-zA-Z0-9_]*\.)?region\s*[=<>!]+\s*[\'"]?([^\'"\s,]+)[\'"]?', where_clause, re.IGNORECASE)
+        region_match = re.search(r'(?:[a-zA-Z_][a-zA-Z0-9_]*\.)?region\s*[=<>!]+\s*(?:[\'"]([^\'"]+)[\'"]|([^\'"\s,]+))', where_clause, re.IGNORECASE)
         if region_match:
-            attributes["customer_region"] = region_match.group(1).strip("'\"")
+            attributes["customer_region"] = (region_match.group(1) or region_match.group(2)).strip("'\"")
     
     # Also check node property patterns: {property: value}
     node_prop_pattern = r'\{([^}]+)\}'
@@ -397,21 +392,21 @@ def extract_resource_attributes(query: str) -> Dict[str, Any]:
             attributes["pep_flag"] = True
         
         # Extract risk_rating from node properties
-        risk_prop_match = re.search(r'risk_rating\s*:\s*[\'"]?([^\'"\s,}]+)[\'"]?', props, re.IGNORECASE)
+        risk_prop_match = re.search(r'risk_rating\s*:\s*(?:[\'"]([^\'"]+)[\'"]|([^\'"\s,}]+))', props, re.IGNORECASE)
         if risk_prop_match:
-            attributes["risk_rating"] = risk_prop_match.group(1).strip("'\"")
+            attributes["risk_rating"] = (risk_prop_match.group(1) or risk_prop_match.group(2)).strip("'\"")
         
         # Extract customer_team from node properties - Phase 3: ABAC
         # Handles: {team: 'Team A'}, Customer {team: 'Team B'}
-        team_prop_match = re.search(r'team\s*:\s*[\'"]?([^\'"\s,}]+)[\'"]?', props, re.IGNORECASE)
+        team_prop_match = re.search(r'team\s*:\s*(?:[\'"]([^\'"]+)[\'"]|([^\'"\s,}]+))', props, re.IGNORECASE)
         if team_prop_match:
-            attributes["customer_team"] = team_prop_match.group(1).strip("'\"")
+            attributes["customer_team"] = (team_prop_match.group(1) or team_prop_match.group(2)).strip("'\"")
         
         # Extract customer_region from node properties - Phase 3: ABAC
         # Handles: {region: 'US'}, Customer {region: 'EU'}
-        region_prop_match = re.search(r'region\s*:\s*[\'"]?([^\'"\s,}]+)[\'"]?', props, re.IGNORECASE)
+        region_prop_match = re.search(r'region\s*:\s*(?:[\'"]([^\'"]+)[\'"]|([^\'"\s,}]+))', props, re.IGNORECASE)
         if region_prop_match:
-            attributes["customer_region"] = region_prop_match.group(1).strip("'\"")
+            attributes["customer_region"] = (region_prop_match.group(1) or region_prop_match.group(2)).strip("'\"")
     
     return attributes
 

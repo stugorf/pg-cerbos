@@ -6,11 +6,11 @@ This document explains how a Cypher graph query moves through the policy registr
 
 Cypher authorization is enforced before the graph database executes a query. The backend turns each query into a Cerbos resource with parsed metadata such as node labels, relationship types, traversal depth, query shape, team filters, region filters, PEP flags, and transaction thresholds. Cerbos evaluates that resource against the authenticated user, their roles, and their user attributes. Only allowed queries are sent to the configured graph execution engine.
 
-The current implementation uses PuppyGraph, but the lifecycle applies to any Cypher-capable graph database or graph query service, including Neo4j, as long as the backend can retrieve schema context, execute Cypher, and normalize results.
+The default implementation uses PuppyGraph, and the backend also includes a Neo4j adapter. The lifecycle applies to any graph database or graph query service as long as the backend can retrieve schema context, execute the query language, and normalize results.
 
 Product implication: policies can express graph-aware controls, not just "can this user query the graph?" Controls can differentiate junior analysts, senior analysts, managers, teams, regions, clearance levels, sensitive node types, sensitive relationship types, and high-risk query filters.
 
-Technical implication: the enforcement point is in FastAPI before execution. The parser is a regex metadata extractor, not a full Cypher compiler, so policy controls are only as strong as the metadata extracted and passed to Cerbos.
+Technical implication: the enforcement point is in FastAPI before execution. Graph queries now pass through a normalized analyzer boundary before Cerbos evaluation. Production deployments should set `GRAPH_QUERY_ANALYZER_URL` to a parser service backed by mature language parsers; the local Cypher analyzer remains a development fallback and is still regex-based.
 
 ## Lifecycle Diagram
 
@@ -25,7 +25,7 @@ flowchart TD
     F -->|Yes| H[Use generated Cypher]
     C --> I{Cypher?}
     H --> I
-    I -->|No, Gremlin| J[Build basic transaction/graph_expand auth context]
+    I -->|No, other graph language| J[Analyze with configured graph-language analyzer]
     I -->|Yes| K[Parse Cypher metadata]
     K --> L[Extract resource attributes from WHERE and node properties]
     J --> M[Load user roles and attributes]
@@ -94,9 +94,15 @@ The current implementation does not have a separate first-class "group" table or
 
 Product wording should therefore use "roles and attributes" unless a separate group model is added later. If formal groups are required, the backend would need to add group membership to the auth model and pass it to Cerbos as either roles or principal attributes.
 
-## Cypher Parsing
+## Graph Query Analysis
 
-For Cypher requests, the backend calls `parse_cypher_query(query)` and `extract_resource_attributes(query)` from `policy-registry/backend/cypher_parser.py`.
+For graph query requests, the backend calls `analyze_graph_query(...)` from `policy-registry/backend/graph_query_analyzer.py`. That module is the stable boundary between API request handling and authorization metadata.
+
+When `GRAPH_QUERY_ANALYZER_URL` is set, the backend sends queries to a remote analyzer service at `POST /analyze`. This repository includes a Docker Compose-managed `graph-query-analyzer` service built with Java 21 and Maven inside Docker, so host Java/Maven installs are not required. That service currently implements the normalized analyzer contract and is structured for production-grade parsers such as Neo4j/openCypher tooling for Cypher and Apache Jena ARQ for SPARQL. When the URL is not set, only Cypher is analyzed locally using the current regex-based extractor.
+
+Analyzer failures are fail-closed. If analysis is unavailable, incomplete, malformed, or returns an error, the backend rejects the request before Cerbos evaluation and before graph database execution.
+
+For local Cypher analysis, the backend still calls `parse_cypher_query(query)` and `extract_resource_attributes(query)` from `policy-registry/backend/cypher_parser.py`.
 
 The parser extracts structural metadata:
 
@@ -128,7 +134,7 @@ The parser also extracts policy-relevant filters:
 | `customer_team` | `WHERE c.team = 'Team A'` or `{team: 'Team A'}` | Team-based ABAC |
 | `customer_region` | `WHERE c.region = 'US'` or `{region: 'US'}` | Region-based ABAC |
 
-Important limitation: this parser uses regular expressions. It is sufficient for common demo and controlled query shapes, but it does not provide full Cypher semantic analysis. Complex expressions, aliases, computed predicates, nested conditions, or alternative syntax may not produce the expected authorization metadata.
+Important limitation: the local fallback parser uses regular expressions. It is sufficient for common demo and controlled query shapes, but it does not provide full Cypher semantic analysis. Complex expressions, aliases, computed predicates, nested conditions, or alternative syntax may not produce the expected authorization metadata. Production use should configure the remote analyzer service.
 
 ## Cerbos Request Shape
 
@@ -137,7 +143,16 @@ After parsing, the backend builds Cerbos attributes like this:
 ```json
 {
   "query_type": "cypher",
+  "analysis_version": "graph-query-analysis/v1",
+  "complete": true,
+  "language": "cypher",
+  "statement_type": "read",
+  "is_read_only": true,
+  "has_write_operation": false,
   "query": "MATCH (c:Customer {team: 'Team A'}) RETURN c LIMIT 10",
+  "accessed_node_labels": ["Customer"],
+  "accessed_edge_types": [],
+  "max_traversal_depth": 0,
   "node_labels": ["Customer"],
   "relationship_types": [],
   "max_depth": 0,
@@ -166,6 +181,20 @@ Then it calls Cerbos with:
 
 The Cerbos resource policy is `cerbos/policies/resource_policies/cypher_query.yaml`. It imports derived roles from `cerbos/policies/derived_roles/graph_query_roles.yaml` and validates attributes with `cypher_query_resource.json` and `aml_principal.json`.
 
+The normalized contract intentionally includes both new language-neutral fields, such as `accessed_node_labels`, and legacy fields, such as `node_labels`, so policies can migrate incrementally.
+
+## Graph Engine Adapters
+
+After authorization, execution is dispatched through `policy-registry/backend/graph_engine_adapter.py`.
+
+| Adapter | Enabled by | Languages |
+|---|---|---|
+| PuppyGraph | `GRAPH_ENGINE=puppygraph` | `cypher`, `gremlin` |
+| Neo4j | `GRAPH_ENGINE=neo4j` | `cypher`, `gql` using the Neo4j Bolt driver |
+| Unsupported | Any other value | Returns `501` until implemented |
+
+Neo4j settings are provided with `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, and optional `NEO4J_DATABASE`. SPARQL is accepted by the UI/analyzer contract, but needs a SPARQL-capable execution adapter before it can run.
+
 ## What Policies Can Evaluate
 
 The current policy set can evaluate the following dimensions.
@@ -187,7 +216,9 @@ The current policy set can evaluate the following dimensions.
 
 | Dimension | Examples | Current usage |
 |---|---|---|
-| Query type | `cypher`, `gremlin` | Cypher uses `cypher_query/execute`; Gremlin uses legacy `transaction/graph_expand` |
+| Query type | `cypher`, `gremlin`, `sparql`, `gql` | UI and analyzer contract accept all four; Cypher has local fallback analysis; other languages require the remote analyzer and execution adapters |
+| Analysis version | `graph-query-analysis/v1` | Allows policy and backend compatibility checks |
+| Read/write classification | `is_read_only`, `has_write_operation` | Writes are denied by policy by default |
 | Node labels | `Customer`, `Account`, `Transaction`, `Alert`, `Case`, `SAR` | Used to deny sensitive nodes and SAR access |
 | Relationship types | `OWNS`, `SENT_TXN`, `FLAGS_CUSTOMER`, `FLAGS_ACCOUNT`, `FROM_ALERT` | Used to deny sensitive alert relationships |
 | Traversal depth | `0`, `1`, `2`, `4` | Junior/base analysts limited to 2; seniors to 4 |
@@ -215,6 +246,7 @@ Key current rules:
 |---|---|
 | Admin | `admin` can execute all Cypher queries |
 | Manager | `aml_manager` and `aml_manager_full` can execute all Cypher queries |
+| Write operation deny | Deny graph mutations unless write support is explicitly introduced later |
 | Junior analyst deny | Deny `Case`, `Alert`, and sensitive alert relationships |
 | Analyst team deny | Deny customer queries when user team and query team are both present and different |
 | Analyst region deny | Deny customer queries when user region and query region are both present and different |
@@ -653,7 +685,10 @@ Use these files when changing or reviewing behavior:
 | File | Responsibility |
 |---|---|
 | `policy-registry/backend/app.py` | Request endpoints, user context loading, Cerbos call, execution |
-| `policy-registry/backend/cypher_parser.py` | Query metadata and resource attribute extraction |
+| `policy-registry/backend/graph_engine_adapter.py` | Execution adapter boundary for PuppyGraph, Neo4j, and future engines |
+| `policy-registry/backend/graph_query_analyzer.py` | Analyzer boundary, remote sidecar client, normalized contract, fail-closed behavior |
+| `policy-registry/backend/cypher_parser.py` | Local development fallback for Cypher metadata extraction |
+| `graph-query-analyzer/` | Dockerized Java analyzer sidecar exposing `POST /analyze` |
 | `policy-registry/backend/cerbos_client.py` | Cerbos principal/resource construction |
 | `policy-registry/backend/puppygraph_client.py` | Current graph database adapter: PuppyGraph execution and JSON-safe result conversion |
 | `cerbos/policies/resource_policies/cypher_query.yaml` | Cypher authorization rules |
@@ -667,7 +702,7 @@ The strongest current guarantees are role, depth, label, relationship type, team
 
 Areas to improve for production hardening:
 
-1. Replace regex extraction with a full Cypher parser or a normalized query planning layer.
+1. Implement the remote JVM analyzer service with Neo4j/openCypher and Apache Jena ARQ parsers.
 2. Add explicit tests for every policy rule and every resource attribute extractor.
 3. Add a formal group membership model if product requirements distinguish groups from roles and attributes.
 4. Decide whether the product needs post-query filtering or redaction in addition to pre-query authorization.

@@ -188,7 +188,7 @@
                     <div class="graph-query-interface">
                         <div class="query-header">
                             <h3>Graph Query Interface</h3>
-                            <p>Execute Cypher or Gremlin queries via PuppyGraph. All queries are authorized via Cerbos before execution.</p>
+                            <p>Execute graph queries via the configured graph engine. All queries are analyzed and authorized via Cerbos before execution.</p>
                         </div>
                         
                         <div class="query-form">
@@ -197,11 +197,13 @@
                                 <select id="graph-query-type" class="form-control">
                                     <option value="cypher">openCypher</option>
                                     <option value="gremlin">Gremlin</option>
+                                    <option value="sparql">SPARQL</option>
+                                    <option value="gql">GQL</option>
                                 </select>
                             </div>
                             <div class="form-group">
                                 <label for="graph-query-input">Graph Query:</label>
-                                <textarea id="graph-query-input" placeholder="Enter your Cypher or Gremlin query here...&#10;&#10;Cypher Example:&#10;MATCH (c:Customer)-[:OWNS]->(acc:Account)-[:SENT_TXN]->(txn:Transaction)&#10;WHERE txn.amount > 50000&#10;RETURN c.name, txn.amount, txn.timestamp&#10;ORDER BY txn.amount DESC&#10;&#10;Gremlin Example:&#10;g.V().hasLabel('Customer').out('OWNS').out('SENT_TXN').has('amount', gt(50000)).valueMap()" rows="10"></textarea>
+                                <textarea id="graph-query-input" placeholder="Select a graph query language, then load an example or enter a query." rows="10"></textarea>
                             </div>
                             <div class="query-controls">
                                 <button id="execute-graph-query-btn" class="btn btn-primary">Execute Graph Query</button>
@@ -241,11 +243,13 @@
                             </div>
                             <div id="graph-query-output" class="query-output">
                                 <div class="no-query-message">
-                                    <p>Enter a Cypher or Gremlin query above and click "Execute Graph Query" to see results</p>
+                                    <p>Select a graph query language, enter or load a query, and click "Execute Graph Query" to see results</p>
                                     <p class="query-tips">
                                         <strong>Graph Query Tips:</strong><br>
                                         • <strong>Cypher</strong>: Use openCypher syntax for graph traversals<br>
                                         • <strong>Gremlin</strong>: Use Gremlin syntax for graph operations<br>
+                                        • <strong>SPARQL</strong>: Use RDF graph query syntax when a SPARQL-capable analyzer and engine adapter are configured<br>
+                                        • <strong>GQL</strong>: Use ISO GQL-style graph patterns when a GQL-capable engine such as Neo4j is configured<br>
                                         • All queries are authorized via Cerbos before execution<br>
                                         • Queries access PostgreSQL data through PuppyGraph's graph mapping<br>
                                         • See <a href="http://localhost:8081" target="_blank">PuppyGraph Web UI</a> for schema visualization
@@ -565,6 +569,51 @@ LIMIT 50`
                 type: 'gremlin',
                 description: 'Find customers whose accounts sent transactions greater than 50000.',
                 query: `g.V().hasLabel('Customer').as('customer').out('OWNS').out('SENT_TXN').has('amount', gt(50000)).select('customer').valueMap(true).limit(25)`
+            },
+            {
+                name: 'RDF customer/account triples',
+                type: 'sparql',
+                description: 'Example SPARQL read query for customer-account relationships.',
+                query: `PREFIX aml: <urn:aml:>
+SELECT ?customer ?account
+WHERE {
+  ?customer a aml:Customer .
+  ?customer aml:owns ?account .
+}
+LIMIT 25`
+            },
+            {
+                name: 'RDF high-value transactions',
+                type: 'sparql',
+                description: 'Example SPARQL query with a transaction amount filter.',
+                query: `PREFIX aml: <urn:aml:>
+SELECT ?customer ?transaction ?amount
+WHERE {
+  ?customer a aml:Customer .
+  ?customer aml:owns ?account .
+  ?account aml:sentTransaction ?transaction .
+  ?transaction aml:amount ?amount .
+  FILTER (?amount > 50000)
+}
+LIMIT 25`
+            },
+            {
+                name: 'GQL customer accounts',
+                type: 'gql',
+                description: 'Example ISO GQL-style graph pattern for customers and accounts.',
+                query: `MATCH (c:Customer)-[:OWNS]->(a:Account)
+RETURN c.name AS customer, a.account_id AS account
+LIMIT 25`
+            },
+            {
+                name: 'GQL high-value transactions',
+                type: 'gql',
+                description: 'Example GQL-style traversal to high-value transactions.',
+                query: `MATCH (c:Customer)-[:OWNS]->(a:Account)-[:SENT_TXN]->(t:Transaction)
+WHERE t.amount > 50000
+RETURN c.name AS customer, t.transaction_id AS transaction, t.amount AS amount
+ORDER BY t.amount DESC
+LIMIT 25`
             }
         ];
 
@@ -2400,6 +2449,7 @@ LIMIT 50`
             const clearGraphQueryBtn = document.getElementById('clear-graph-query-btn');
             const loadGraphQueriesBtn = document.getElementById('load-saved-graph-queries-btn');
             const graphQueryInput = document.getElementById('graph-query-input');
+            const graphQueryType = document.getElementById('graph-query-type');
             const nlQueryInput = document.getElementById('nl-query-input');
             const nlGenerateBtn = document.getElementById('nl-generate-cypher-btn');
             const nlAskExecuteBtn = document.getElementById('nl-ask-execute-btn');
@@ -2412,12 +2462,43 @@ LIMIT 50`
             if (nlAskExecuteBtn) nlAskExecuteBtn.onclick = executeNLAskAndExecute;
             if (viewCypherBtn) viewCypherBtn.onclick = toggleViewGeneratedCypher;
             if (graphQueryInput) graphQueryInput.oninput = () => clearFieldValidation('graph-query-input');
+            if (graphQueryType) {
+                graphQueryType.onchange = () => updateGraphQueryPlaceholder();
+                updateGraphQueryPlaceholder();
+            }
             if (nlQueryInput) nlQueryInput.oninput = () => clearFieldValidation('nl-query-input');
+        }
+
+        function getGraphLanguageLabel(type) {
+            const labels = {
+                cypher: 'openCypher',
+                gremlin: 'Gremlin',
+                sparql: 'SPARQL',
+                gql: 'GQL'
+            };
+            return labels[type] || type;
+        }
+
+        function getGraphExamplesForLanguage(type) {
+            return graphSavedQueries.filter((sq) => sq.type === type);
+        }
+
+        function updateGraphQueryPlaceholder() {
+            const queryInput = document.getElementById('graph-query-input');
+            const queryType = document.getElementById('graph-query-type')?.value || 'cypher';
+            if (!queryInput) return;
+            const examples = getGraphExamplesForLanguage(queryType);
+            const example = examples[0];
+            const label = getGraphLanguageLabel(queryType);
+            queryInput.placeholder = example
+                ? `Enter a ${label} query or load an example.\n\n${label} example:\n${example.query}`
+                : `Enter a ${label} query.`;
         }
 
         function clearGraphQuery() {
             document.getElementById('graph-query-input').value = '';
-            document.getElementById('graph-query-output').innerHTML = '<div class="no-query-message"><p>Enter a Cypher or Gremlin query above and click "Execute Graph Query" to see results</p></div>';
+            updateGraphQueryPlaceholder();
+            document.getElementById('graph-query-output').innerHTML = '<div class="no-query-message"><p>Select a graph query language, enter or load a query, then click "Execute Graph Query" to see results</p></div>';
             document.getElementById('graph-query-status').textContent = '';
             document.getElementById('graph-query-time').textContent = '';
             document.getElementById('graph-agent-sequence-summary').textContent = 'Computation Sequence (0)';
@@ -2433,21 +2514,26 @@ LIMIT 50`
         }
 
         function showSavedGraphQueries() {
+            const selectedType = document.getElementById('graph-query-type')?.value || 'cypher';
+            const selectedQueries = graphSavedQueries
+                .map((sq, index) => ({ ...sq, index }))
+                .filter((sq) => sq.type === selectedType);
+            const languageLabel = getGraphLanguageLabel(selectedType);
             const content = `
                 <div class="saved-queries-list">
-                    <h4>Saved Graph Queries</h4>
-                    ${graphSavedQueries.map((sq, index) => `
+                    <h4>${escapeHtml(languageLabel)} Examples</h4>
+                    ${selectedQueries.length ? selectedQueries.map((sq) => `
                         <div class="saved-query-item graph-saved-query-item">
                             <div class="saved-query-info">
                                 <strong>${escapeHtml(sq.name)}</strong>
-                                <span class="saved-query-time">${sq.type === 'cypher' ? 'openCypher' : 'Gremlin'}</span>
+                                <span class="saved-query-time">${escapeHtml(getGraphLanguageLabel(sq.type))}</span>
                                 <p class="saved-query-description">${escapeHtml(sq.description)}</p>
                             </div>
                             <div class="saved-query-actions">
-                                <button onclick="loadSavedGraphQuery(${index})" class="btn btn-small">Load</button>
+                                <button onclick="loadSavedGraphQuery(${sq.index})" class="btn btn-small">Load</button>
                             </div>
                         </div>
-                    `).join('')}
+                    `).join('') : `<div class="info-message">No saved ${escapeHtml(languageLabel)} examples are available.</div>`}
                 </div>
             `;
             showModal('Load Saved Graph Query', content);
@@ -2459,6 +2545,7 @@ LIMIT 50`
 
             document.getElementById('graph-query-type').value = savedQuery.type;
             document.getElementById('graph-query-input').value = savedQuery.query;
+            updateGraphQueryPlaceholder();
             document.getElementById('graph-query-status').textContent = '';
             document.getElementById('graph-query-time').textContent = '';
             hideModal();
@@ -2486,7 +2573,7 @@ LIMIT 50`
                 setFieldValidation('graph-query-input', 'Enter a graph query before running it.');
                 queryStatus.textContent = 'Validation needed';
                 queryStatus.className = 'status-warning';
-                queryOutput.innerHTML = '<div class="info-message">Add a Cypher or Gremlin query, then run it.</div>';
+                queryOutput.innerHTML = '<div class="info-message">Add a graph query, then run it.</div>';
                 const now = Date.now();
                 renderGraphSequence({
                     startTime: now,

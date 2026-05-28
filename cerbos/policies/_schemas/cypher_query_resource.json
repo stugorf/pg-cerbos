@@ -6,12 +6,122 @@
   "properties": {
     "query_type": {
       "type": "string",
-      "enum": ["cypher", "gremlin"],
+      "enum": ["cypher", "gremlin", "sparql", "gql"],
       "description": "Type of graph query"
     },
     "query": {
       "type": "string",
       "description": "The full Cypher query string"
+    },
+    "analysis_version": {
+      "type": "string",
+      "description": "Version of the normalized graph query analysis contract"
+    },
+    "complete": {
+      "type": "boolean",
+      "description": "Whether the analyzer produced complete metadata for authorization"
+    },
+    "language": {
+      "type": "string",
+      "enum": ["cypher", "sparql", "gremlin", "gql"],
+      "description": "Graph query language"
+    },
+    "dialect": {
+      "type": "string",
+      "description": "Language dialect or parser profile"
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["read", "write"],
+      "description": "Requested execution mode"
+    },
+    "statement_type": {
+      "type": "string",
+      "enum": ["read", "write"],
+      "description": "Analyzer-classified statement type"
+    },
+    "is_read_only": {
+      "type": "boolean",
+      "description": "Whether the analyzer considers the query read-only"
+    },
+    "has_write_operation": {
+      "type": "boolean",
+      "description": "Whether the query contains graph mutation or write operations"
+    },
+    "accessed_node_labels": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Normalized node labels accessed by the query"
+    },
+    "accessed_edge_types": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Normalized relationship or edge types accessed by the query"
+    },
+    "accessed_properties": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Normalized properties referenced by the query"
+    },
+    "path_patterns": {
+      "type": "array",
+      "description": "Analyzer-produced path pattern summaries"
+    },
+    "max_traversal_depth": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Normalized maximum traversal depth"
+    },
+    "has_variable_length_paths": {
+      "type": "boolean",
+      "description": "Whether the query contains variable-length path syntax"
+    },
+    "has_aggregation": {
+      "type": "boolean",
+      "description": "Whether the query contains aggregation"
+    },
+    "has_subquery": {
+      "type": "boolean",
+      "description": "Whether the query contains a subquery"
+    },
+    "has_union": {
+      "type": "boolean",
+      "description": "Whether the query contains UNION"
+    },
+    "has_optional_match": {
+      "type": "boolean",
+      "description": "Whether the query contains OPTIONAL MATCH or equivalent optional graph pattern"
+    },
+    "limit": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Parsed query LIMIT if present"
+    },
+    "estimated_result_bound": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Best available result bound or estimate"
+    },
+    "filters": {
+      "type": "object",
+      "description": "Normalized filter values extracted from the query"
+    },
+    "parameters": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Named parameters referenced by the query"
+    },
+    "warnings": {
+      "type": "array",
+      "description": "Analyzer warnings, including security-relevant warnings"
     },
     "node_labels": {
       "type": "array",
