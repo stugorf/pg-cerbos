@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>PG CERBOS - Authentication</title>
-    <link rel="stylesheet" href="auth-styles.css?v=1.0.6">
+    <link rel="stylesheet" href="auth-styles.css?v=1.0.9">
     <script>window.API_BASE = (new URL(document.location)).searchParams.get("api") || "http://localhost:8082";</script>
     <!-- ECharts must load before Monaco's AMD loader (vs/loader.js) to avoid "one anonymous define per script" error -->
     <script src="/echarts.min.js"></script>
@@ -40,6 +40,30 @@
 
         <!-- Main Dashboard (after login) -->
         <div id="dashboard-section" class="dashboard-section" style="display: none;">
+            <aside class="app-sidebar">
+                <div class="app-brand">
+                    <img src="images/pg.svg" alt="PG CERBOS" class="app-brand-logo">
+                    <div>
+                        <strong>PG CERBOS</strong>
+                        <span>Policy and query observability</span>
+                    </div>
+                </div>
+                <nav class="nav-tabs" aria-label="Primary navigation">
+                    <div class="nav-group-label">Query</div>
+                    <button class="tab-btn active" data-tab="sql-query">SQL Query</button>
+                    <button class="tab-btn" data-tab="graph-query">Graph Query</button>
+                    <div class="nav-group-label">Operations</div>
+                    <button class="tab-btn" data-tab="aml-management">AML Management</button>
+                    <button class="tab-btn" data-tab="architecture">Architecture</button>
+                    <button class="tab-btn" data-tab="cerbos-logs">Cerbos Logs</button>
+                    <div class="nav-group-label">Admin</div>
+                    <button class="tab-btn" data-tab="policies">Policy Management</button>
+                    <button class="tab-btn" data-tab="users">User Management</button>
+                    <button class="tab-btn" data-tab="roles">Role Management</button>
+                    <button class="tab-btn" data-tab="permissions">Permission Management</button>
+                </nav>
+            </aside>
+            <div class="dashboard-main">
             <header class="dashboard-header">
                 <!-- EK Logo in Dashboard Header -->
                 <div class="ek-logo-header">
@@ -56,19 +80,6 @@
                     <span class="build-info" id="header-build">Build: 20260126_1200</span>
                 </div>
             </header>
-
-            <!-- Navigation Tabs -->
-            <nav class="nav-tabs">
-                <button class="tab-btn active" data-tab="sql-query">SQL Query</button>
-                <button class="tab-btn" data-tab="graph-query">Graph Query</button>
-                <button class="tab-btn" data-tab="aml-management">AML Management</button>
-                <button class="tab-btn" data-tab="policies">Policy Management</button>
-                <button class="tab-btn" data-tab="cerbos-logs">Cerbos Logs</button>
-                <button class="tab-btn" data-tab="architecture">Architecture</button>
-                <button class="tab-btn" data-tab="users">User Management</button>
-                <button class="tab-btn" data-tab="roles">Role Management</button>
-                <button class="tab-btn" data-tab="permissions">Permission Management</button>
-            </nav>
 
             <!-- Tab Content -->
             <div class="tab-content">
@@ -94,6 +105,12 @@
                                 <button id="save-query-btn" class="btn btn-secondary">Save Query</button>
                                 <button id="load-saved-queries-btn" class="btn btn-secondary">Load Saved</button>
                             </div>
+                            <details id="sql-agent-sequence-panel" class="agent-sequence-panel">
+                                <summary id="sql-agent-sequence-summary">Computation Sequence (0)</summary>
+                                <div id="sql-agent-sequence-cards" class="agent-sequence-cards">
+                                    <div class="agent-sequence-empty">Run a SQL query to see validation, execution, and metrics.</div>
+                                </div>
+                            </details>
                         </div>
 
                         <div class="query-results">
@@ -157,6 +174,12 @@
                                 <button id="clear-graph-query-btn" class="btn btn-secondary">Clear</button>
                                 <button id="load-saved-graph-queries-btn" class="btn btn-secondary">Load Saved Query</button>
                             </div>
+                            <details id="graph-agent-sequence-panel" class="agent-sequence-panel">
+                                <summary id="graph-agent-sequence-summary">Computation Sequence (0)</summary>
+                                <div id="graph-agent-sequence-cards" class="agent-sequence-cards">
+                                    <div class="agent-sequence-empty">Run a graph query to see validation, execution, and metrics.</div>
+                                </div>
+                            </details>
                             <div class="form-group nl-query-section">
                                 <label>Or ask in natural language</label>
                                 <p class="form-hint">e.g. &quot;Customers who own accounts&quot;, &quot;Transactions over 50000&quot;, &quot;Alerts that flag customers&quot;</p>
@@ -367,14 +390,15 @@
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- Version Footer -->
-        <div class="version-footer">
-            <div class="footer-content">
-                <span class="footer-version" id="footer-version">PG CERBOS v1.0.5</span>
-                <span class="footer-build" id="footer-build">Build 20260126_1200</span>
-                <span class="footer-timestamp" id="footer-timestamp"></span>
+            <!-- Version Footer -->
+            <div class="version-footer">
+                <div class="footer-content">
+                    <span class="footer-version" id="footer-version">PG CERBOS v1.0.9</span>
+                    <span class="footer-build" id="footer-build">Build 20260126_1200</span>
+                    <span class="footer-timestamp" id="footer-timestamp"></span>
+                </div>
+            </div>
             </div>
         </div>
 
@@ -453,7 +477,7 @@
         const API_BASE = (new URL(document.location)).searchParams.get("api") || "http://localhost:8082";
         const ENVOY_URL = "http://localhost:8081"; // Legacy - not used anymore
         const JSON_API_URL = "http://localhost:8082"; // New JSON API endpoint
-        const VERSION = "1.0.6"; // Cache busting version - Added graph saved query examples
+        const VERSION = "1.0.9"; // Cache busting version - Sidebar app shell
         const TIMESTAMP = Date.now(); // Force cache refresh
         const BUILD_ID = "20260126_1200"; // Build date: Jan 26, 2026 - Cerbos authorization logging feature
             
@@ -609,7 +633,7 @@ LIMIT 50`
         }
 
         function showLogin() {
-            loginSection.style.display = 'block';
+            loginSection.style.display = 'flex';
             dashboardSection.style.display = 'none';
             loginForm.reset();
         }
@@ -617,7 +641,7 @@ LIMIT 50`
         function showDashboard() {
             console.log('showDashboard called');
             loginSection.style.display = 'none';
-            dashboardSection.style.display = 'block';
+            dashboardSection.style.display = 'grid';
             userEmail.textContent = currentUser.email;
             userRoles.textContent = `Roles: ${currentUser.roles.join(', ')}`;
             
@@ -647,13 +671,16 @@ LIMIT 50`
             const loadBtn = document.getElementById('load-saved-queries-btn');
             const queryInput = document.getElementById('sql-query-input');
 
-            executeBtn.addEventListener('click', executeQuery);
-            clearBtn.addEventListener('click', clearQuery);
-            saveBtn.addEventListener('click', saveQuery);
-            loadBtn.addEventListener('click', showSavedQueries);
+            executeBtn.onclick = executeQuery;
+            clearBtn.onclick = clearQuery;
+            saveBtn.onclick = saveQuery;
+            loadBtn.onclick = showSavedQueries;
 
             // Add semicolon warning functionality
-            queryInput.addEventListener('input', checkForSemicolon);
+            queryInput.oninput = () => {
+                checkForSemicolon();
+                clearFieldValidation('sql-query-input');
+            };
 
             // Load saved queries from localStorage
             loadSavedQueriesFromStorage();
@@ -671,6 +698,303 @@ LIMIT 50`
             }
         }
 
+        function formatSequenceTime(timestamp) {
+            return new Date(timestamp).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+        }
+
+        function formatSequenceDuration(durationMs) {
+            if (durationMs === null || durationMs === undefined || Number.isNaN(durationMs)) return '0 ms';
+            if (durationMs < 1000) return `${Math.max(0, Math.round(durationMs))} ms`;
+            return `${(durationMs / 1000).toFixed(2)} s`;
+        }
+
+        function renderAgentSequence(kind, steps) {
+            const summary = document.getElementById(`${kind}-agent-sequence-summary`);
+            const cards = document.getElementById(`${kind}-agent-sequence-cards`);
+            const panel = document.getElementById(`${kind}-agent-sequence-panel`);
+            if (!summary || !cards || !panel) return;
+
+            summary.textContent = `Computation Sequence (${steps.length})`;
+            cards.innerHTML = steps.map((step, index) => {
+                const start = step.start || Date.now();
+                const end = step.end || start;
+                const statusClass = step.status === 'OK' ? 'ok' : 'error';
+                return `
+                    <div class="agent-sequence-card">
+                        <div class="agent-sequence-step">${index + 1}</div>
+                        <h5>${escapeHtml(step.name)}</h5>
+                        <div class="agent-sequence-status ${statusClass}">${escapeHtml(step.status)}</div>
+                        <div class="agent-sequence-time">${formatSequenceTime(start)} → ${formatSequenceTime(end)} · ${formatSequenceDuration(step.durationMs)}</div>
+                        <p>${escapeHtml(step.detail)}</p>
+                    </div>
+                `;
+            }).join('');
+            panel.open = true;
+        }
+
+        function getSqlRowCount(data) {
+            return Array.isArray(data?.data) ? data.data.length : 0;
+        }
+
+        function getGraphRowCount(result) {
+            const data = result?.data;
+            if (Array.isArray(data?.results)) return data.results.length;
+            if (Array.isArray(data)) return data.length;
+            return data ? 1 : 0;
+        }
+
+        function isCerbosDenied(detail) {
+            return /cerbos|authori[sz]ation|403|not authorized|denied/i.test(detail || '');
+        }
+
+        function renderSqlSequence({ startTime, endTime, status, rowCount, detail, metrics }) {
+            const durationMs = endTime - startTime;
+            const validationFailed = status === 'FAILED' && !metrics && /validation failed|empty sql/i.test(detail || '');
+            if (validationFailed) {
+                renderAgentSequence('sql', [
+                    {
+                        name: 'query.validated',
+                        status: 'ERROR',
+                        start: startTime,
+                        end: endTime,
+                        durationMs,
+                        detail: 'empty SQL'
+                    },
+                    {
+                        name: 'query.metrics',
+                        status,
+                        start: startTime,
+                        end: endTime,
+                        durationMs,
+                        detail: detail || 'Overall: validation failed.'
+                    }
+                ]);
+                return;
+            }
+            const deniedByCerbos = isCerbosDenied(detail);
+            const cerbosMs = metrics?.cerbos_ms ?? 0;
+            const cerbosEnd = startTime + cerbosMs;
+            const executeMs = metrics?.engine_ms ?? Math.max(0, durationMs - cerbosMs);
+            const executeEnd = cerbosEnd + executeMs;
+            renderAgentSequence('sql', [
+                {
+                    name: 'query.validated',
+                    status: status === 'FAILED' ? 'ERROR' : 'OK',
+                    start: startTime,
+                    end: startTime,
+                    durationMs: 0,
+                    detail: status === 'FAILED' ? 'validation failed' : 'validated'
+                },
+                {
+                    name: 'cerbos.authorize',
+                    status: deniedByCerbos ? 'ERROR' : status,
+                    start: startTime,
+                    end: cerbosEnd,
+                    durationMs: cerbosMs,
+                    detail: deniedByCerbos ? 'policy denied' : (status === 'OK' ? 'policy allowed' : 'not measured')
+                },
+                {
+                    name: 'trino.execute',
+                    status: deniedByCerbos ? 'ERROR' : status,
+                    start: cerbosEnd,
+                    end: executeEnd,
+                    durationMs: executeMs,
+                    detail: deniedByCerbos ? 'skipped' : (status === 'OK' ? 'completed' : 'failed')
+                },
+                {
+                    name: 'query.metrics',
+                    status,
+                    start: startTime,
+                    end: endTime,
+                    durationMs,
+                    detail: detail || `Overall: ${rowCount} row(s).`
+                }
+            ]);
+        }
+
+        function renderGraphSequence({ startTime, endTime, status, rowCount, queryType, detail, backendMs, metrics }) {
+            const durationMs = endTime - startTime;
+            const validationFailed = status === 'FAILED' && !metrics && /validation failed|empty graph query/i.test(detail || '');
+            if (validationFailed) {
+                renderAgentSequence('graph', [
+                    {
+                        name: 'query.validated',
+                        status: 'ERROR',
+                        start: startTime,
+                        end: endTime,
+                        durationMs,
+                        detail: `empty ${queryType} query`
+                    },
+                    {
+                        name: 'query.metrics',
+                        status,
+                        start: startTime,
+                        end: endTime,
+                        durationMs,
+                        detail: detail || 'Overall: validation failed.'
+                    }
+                ]);
+                return;
+            }
+            const deniedByCerbos = isCerbosDenied(detail);
+            const cerbosMs = metrics?.cerbos_ms ?? 0;
+            const cerbosEnd = startTime + cerbosMs;
+            const executeMs = metrics?.engine_ms ?? backendMs ?? Math.max(0, durationMs - cerbosMs);
+            const executeEnd = cerbosEnd + executeMs;
+            renderAgentSequence('graph', [
+                {
+                    name: 'query.validated',
+                    status: status === 'FAILED' ? 'ERROR' : 'OK',
+                    start: startTime,
+                    end: startTime,
+                    durationMs: 0,
+                    detail: `${queryType} validated`
+                },
+                {
+                    name: 'cerbos.authorize',
+                    status: deniedByCerbos ? 'ERROR' : status,
+                    start: startTime,
+                    end: cerbosEnd,
+                    durationMs: cerbosMs,
+                    detail: deniedByCerbos ? 'policy denied' : (status === 'OK' ? 'policy allowed' : 'not measured')
+                },
+                {
+                    name: 'puppygraph.execute',
+                    status: deniedByCerbos ? 'ERROR' : status,
+                    start: cerbosEnd,
+                    end: executeEnd,
+                    durationMs: executeMs,
+                    detail: deniedByCerbos ? 'skipped' : (status === 'OK' ? 'completed' : 'failed')
+                },
+                {
+                    name: 'query.metrics',
+                    status,
+                    start: startTime,
+                    end: endTime,
+                    durationMs,
+                    detail: detail || `Overall: ${rowCount} row(s).`
+                }
+            ]);
+        }
+
+        function renderGraphNaturalLanguageSequence({ startTime, endTime, status, rowCount, detail, metrics, executed }) {
+            const durationMs = endTime - startTime;
+            const schemaMs = metrics?.schema_ms ?? 0;
+            const modelMs = metrics?.model_ms ?? 0;
+            const cerbosMs = metrics?.cerbos_ms ?? 0;
+            const engineMs = metrics?.engine_ms ?? 0;
+            const schemaEnd = startTime + schemaMs;
+            const modelEnd = schemaEnd + modelMs;
+            const cerbosEnd = modelEnd + cerbosMs;
+            const engineEnd = cerbosEnd + engineMs;
+            const steps = [
+                {
+                    name: 'schema.fetch',
+                    status: status === 'FAILED' ? 'ERROR' : 'OK',
+                    start: startTime,
+                    end: schemaEnd,
+                    durationMs: schemaMs,
+                    detail: 'PuppyGraph schema loaded'
+                },
+                {
+                    name: 'model.generate_cypher',
+                    status: status === 'FAILED' ? 'ERROR' : 'OK',
+                    start: schemaEnd,
+                    end: modelEnd,
+                    durationMs: modelMs,
+                    detail: status === 'OK' ? 'Cypher generated' : 'generation failed'
+                }
+            ];
+
+            if (executed) {
+                steps.push(
+                    {
+                        name: 'cerbos.authorize',
+                        status,
+                        start: modelEnd,
+                        end: cerbosEnd,
+                        durationMs: cerbosMs,
+                        detail: status === 'OK' ? 'policy allowed' : 'policy denied'
+                    },
+                    {
+                        name: 'puppygraph.execute',
+                        status,
+                        start: cerbosEnd,
+                        end: engineEnd,
+                        durationMs: engineMs,
+                        detail: status === 'OK' ? 'completed' : 'skipped'
+                    }
+                );
+            }
+
+            steps.push({
+                name: 'query.metrics',
+                status,
+                start: startTime,
+                end: endTime,
+                durationMs,
+                detail: detail || (executed ? `Overall: ${rowCount} row(s), natural language execution.` : 'Overall: Cypher generated, execution skipped.')
+            });
+
+            renderAgentSequence('graph', steps);
+        }
+
+        function setActionPending(activeButton, buttons, pendingLabel) {
+            if (!activeButton) return () => {};
+            const buttonList = buttons.filter(Boolean);
+            const previous = buttonList.map((button) => ({
+                button,
+                text: button.textContent,
+                disabled: button.disabled,
+                busy: button.getAttribute('aria-busy')
+            }));
+            buttonList.forEach((button) => {
+                button.disabled = true;
+                button.setAttribute('aria-busy', button === activeButton ? 'true' : 'false');
+            });
+            activeButton.textContent = pendingLabel;
+            return () => {
+                previous.forEach(({ button, text, disabled, busy }) => {
+                    button.textContent = text;
+                    button.disabled = disabled;
+                    if (busy === null) {
+                        button.removeAttribute('aria-busy');
+                    } else {
+                        button.setAttribute('aria-busy', busy);
+                    }
+                });
+            };
+        }
+
+        function setFieldValidation(inputId, message) {
+            const input = document.getElementById(inputId);
+            if (!input) return;
+            clearFieldValidation(inputId);
+            const validation = document.createElement('div');
+            validation.className = 'field-validation';
+            validation.id = `${inputId}-validation`;
+            validation.textContent = message;
+            input.insertAdjacentElement('afterend', validation);
+        }
+
+        function clearFieldValidation(inputId) {
+            const validation = document.getElementById(`${inputId}-validation`);
+            if (validation) validation.remove();
+        }
+
+        function getErrorMessageFromPayload(payload, fallback) {
+            if (!payload) return fallback;
+            if (typeof payload === 'string') return payload;
+            if (typeof payload.detail === 'string') return payload.detail;
+            if (typeof payload.error === 'string') return payload.error;
+            if (Array.isArray(payload.validation_errors) && payload.validation_errors.length) return payload.validation_errors.join(' ');
+            return fallback;
+        }
+
         async function executeQuery() {
             console.log('executeQuery function called');
             
@@ -680,11 +1004,31 @@ LIMIT 50`
             const queryStatus = document.getElementById('query-status');
             const queryTime = document.getElementById('query-time');
             const resultCount = document.getElementById('result-count');
+            const executeBtn = document.getElementById('execute-query-btn');
+            const restoreAction = setActionPending(executeBtn, [
+                executeBtn,
+                document.getElementById('clear-query-btn'),
+                document.getElementById('save-query-btn'),
+                document.getElementById('load-saved-queries-btn')
+            ], 'Running...');
 
             if (!query) {
-                showQueryError('Please enter a SQL query');
+                restoreAction();
+                setFieldValidation('sql-query-input', 'Enter a SQL query before running it.');
+                queryStatus.textContent = 'Validation needed';
+                queryStatus.className = 'status-warning';
+                queryOutput.innerHTML = '<div class="info-message">Add a SQL query, then run it.</div>';
+                const now = Date.now();
+                renderSqlSequence({
+                    startTime: now,
+                    endTime: now,
+                    status: 'FAILED',
+                    rowCount: 0,
+                    detail: 'Query validation failed: empty SQL.'
+                });
                 return;
             }
+            clearFieldValidation('sql-query-input');
 
             // Check for semicolon and show warning
             if (query.includes(';')) {
@@ -698,8 +1042,8 @@ LIMIT 50`
             queryStatus.className = 'status-executing';
             queryOutput.innerHTML = '<div class="loading">Executing query...</div>';
 
+            const startTime = Date.now();
             try {
-                const startTime = Date.now();
                 
                 // Use the new JSON API endpoint
                 const requestBody = {
@@ -726,8 +1070,8 @@ LIMIT 50`
                 const endTime = Date.now();
                 const executionTime = endTime - startTime;
 
+                const data = await response.json().catch(() => ({}));
                 if (response.ok) {
-                    const data = await response.json();
                     
                     // Add to query history
                     addToQueryHistory(query, 'success', executionTime);
@@ -750,8 +1094,31 @@ LIMIT 50`
                         if (data.data && Array.isArray(data.data)) {
                             resultCount.textContent = `Results: ${data.data.length} rows`;
                         }
+
+                        renderSqlSequence({
+                            startTime,
+                            endTime,
+                            status: 'OK',
+                            rowCount: getSqlRowCount(data),
+                            detail: `Overall: ${getSqlRowCount(data)} row(s), status ${data.status || 'FINISHED'}.`,
+                            metrics: data.sequence_metrics
+                        });
                         
                         return; // Exit early to prevent any other code from running
+                    } else if (data.success === false) {
+                        displayQueryResults(data, executionTime);
+                        queryStatus.textContent = 'Failed';
+                        queryStatus.className = 'status-error';
+                        queryTime.textContent = `Time: ${executionTime}ms`;
+                        resultCount.textContent = '';
+                        renderSqlSequence({
+                            startTime,
+                            endTime,
+                            status: 'FAILED',
+                            rowCount: 0,
+                            detail: data.error || 'Query failed.',
+                            metrics: data.sequence_metrics
+                        });
                     } else if (data.query_id) {
                         // Fallback to the old approach if needed
                         console.log('No immediate results, using query ID approach');
@@ -764,17 +1131,45 @@ LIMIT 50`
                         queryStatus.textContent = 'Success';
                         queryStatus.className = 'status-success';
                         queryTime.textContent = `Time: ${executionTime}ms`;
+                        renderSqlSequence({
+                            startTime,
+                            endTime,
+                            status: 'OK',
+                            rowCount: 0,
+                            detail: `Overall: submitted as ${data.query_id}; status ${data.status || 'submitted'}.`,
+                            metrics: data.sequence_metrics
+                        });
                     } else {
                         // No results available
                         displayQueryResults(data, executionTime);
                         queryStatus.textContent = 'No results';
                         queryStatus.className = 'status-warning';
                         queryTime.textContent = `Time: ${executionTime}ms`;
+                        renderSqlSequence({
+                            startTime,
+                            endTime,
+                            status: 'OK',
+                            rowCount: 0,
+                            detail: `Overall: 0 row(s).`,
+                            metrics: data.sequence_metrics
+                        });
                     }
                     
                 } else {
-                    const errorText = await response.text();
-                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                    const errorMessage = getErrorMessageFromPayload(data, `HTTP ${response.status}: Query failed`);
+                    showQueryError(errorMessage);
+                    queryStatus.textContent = 'Failed';
+                    queryStatus.className = 'status-error';
+                    queryTime.textContent = '';
+                    resultCount.textContent = '';
+                    renderSqlSequence({
+                        startTime,
+                        endTime,
+                        status: 'FAILED',
+                        rowCount: 0,
+                        detail: errorMessage,
+                        metrics: data.sequence_metrics
+                    });
                 }
 
             } catch (error) {
@@ -790,6 +1185,16 @@ LIMIT 50`
                 queryStatus.textContent = 'Failed';
                 queryStatus.className = 'status-error';
                 queryTime.textContent = '';
+                const endTime = Date.now();
+                renderSqlSequence({
+                    startTime,
+                    endTime,
+                    status: 'FAILED',
+                    rowCount: 0,
+                    detail: `Query failed: ${error.message}`
+                });
+            } finally {
+                restoreAction();
             }
         }
 
@@ -1154,7 +1559,7 @@ LIMIT 50`
 
         function showQueryError(message) {
             const queryOutput = document.getElementById('query-output');
-            queryOutput.innerHTML = `<div class="query-error">${message}</div>`;
+            queryOutput.innerHTML = `<div class="query-error">${escapeHtml(message)}</div>`;
         }
 
         function clearQuery() {
@@ -1173,6 +1578,8 @@ LIMIT 50`
             document.getElementById('query-status').textContent = '';
             document.getElementById('query-time').textContent = '';
             document.getElementById('result-count').textContent = '';
+            document.getElementById('sql-agent-sequence-summary').textContent = 'Computation Sequence (0)';
+            document.getElementById('sql-agent-sequence-cards').innerHTML = '<div class="agent-sequence-empty">Run a SQL query to see validation, execution, and metrics.</div>';
         }
 
         function saveQuery() {
@@ -1852,13 +2259,6 @@ Last Updated: ${new Date().toLocaleString()}`;
                 refreshArchBtn.addEventListener('click', loadArchitectureDiagram);
             }
             
-            const nlGenerateBtn = document.getElementById('nl-generate-cypher-btn');
-            if (nlGenerateBtn) nlGenerateBtn.addEventListener('click', executeNLGenerateCypher);
-            const nlAskExecuteBtn = document.getElementById('nl-ask-execute-btn');
-            if (nlAskExecuteBtn) nlAskExecuteBtn.addEventListener('click', executeNLAskAndExecute);
-            const viewCypherBtn = document.getElementById('view-generated-cypher-btn');
-            if (viewCypherBtn) viewCypherBtn.addEventListener('click', toggleViewGeneratedCypher);
-            
             // Initialize AML management
             initializeAMLManagement();
         }
@@ -1868,10 +2268,20 @@ Last Updated: ${new Date().toLocaleString()}`;
             const executeGraphQueryBtn = document.getElementById('execute-graph-query-btn');
             const clearGraphQueryBtn = document.getElementById('clear-graph-query-btn');
             const loadGraphQueriesBtn = document.getElementById('load-saved-graph-queries-btn');
+            const graphQueryInput = document.getElementById('graph-query-input');
+            const nlQueryInput = document.getElementById('nl-query-input');
+            const nlGenerateBtn = document.getElementById('nl-generate-cypher-btn');
+            const nlAskExecuteBtn = document.getElementById('nl-ask-execute-btn');
+            const viewCypherBtn = document.getElementById('view-generated-cypher-btn');
 
             if (executeGraphQueryBtn) executeGraphQueryBtn.onclick = executeGraphQuery;
             if (clearGraphQueryBtn) clearGraphQueryBtn.onclick = clearGraphQuery;
             if (loadGraphQueriesBtn) loadGraphQueriesBtn.onclick = showSavedGraphQueries;
+            if (nlGenerateBtn) nlGenerateBtn.onclick = executeNLGenerateCypher;
+            if (nlAskExecuteBtn) nlAskExecuteBtn.onclick = executeNLAskAndExecute;
+            if (viewCypherBtn) viewCypherBtn.onclick = toggleViewGeneratedCypher;
+            if (graphQueryInput) graphQueryInput.oninput = () => clearFieldValidation('graph-query-input');
+            if (nlQueryInput) nlQueryInput.oninput = () => clearFieldValidation('nl-query-input');
         }
 
         function clearGraphQuery() {
@@ -1879,6 +2289,9 @@ Last Updated: ${new Date().toLocaleString()}`;
             document.getElementById('graph-query-output').innerHTML = '<div class="no-query-message"><p>Enter a Cypher or Gremlin query above and click "Execute Graph Query" to see results</p></div>';
             document.getElementById('graph-query-status').textContent = '';
             document.getElementById('graph-query-time').textContent = '';
+            document.getElementById('graph-agent-sequence-summary').textContent = 'Computation Sequence (0)';
+            document.getElementById('graph-agent-sequence-cards').innerHTML = '<div class="agent-sequence-empty">Run a graph query to see validation, execution, and metrics.</div>';
+            clearFieldValidation('graph-query-input');
             resetGraphQueryChartsSection();
         }
 
@@ -1921,18 +2334,40 @@ Last Updated: ${new Date().toLocaleString()}`;
             const queryOutput = document.getElementById('graph-query-output');
             const queryStatus = document.getElementById('graph-query-status');
             const queryTime = document.getElementById('graph-query-time');
+            const executeBtn = document.getElementById('execute-graph-query-btn');
+            const restoreAction = setActionPending(executeBtn, [
+                executeBtn,
+                document.getElementById('clear-graph-query-btn'),
+                document.getElementById('load-saved-graph-queries-btn'),
+                document.getElementById('nl-generate-cypher-btn'),
+                document.getElementById('nl-ask-execute-btn')
+            ], 'Running...');
             
             if (!query) {
-                showGraphQueryError('Please enter a graph query');
+                restoreAction();
+                setFieldValidation('graph-query-input', 'Enter a graph query before running it.');
+                queryStatus.textContent = 'Validation needed';
+                queryStatus.className = 'status-warning';
+                queryOutput.innerHTML = '<div class="info-message">Add a Cypher or Gremlin query, then run it.</div>';
+                const now = Date.now();
+                renderGraphSequence({
+                    startTime: now,
+                    endTime: now,
+                    status: 'FAILED',
+                    rowCount: 0,
+                    queryType,
+                    detail: 'Query validation failed: empty graph query.'
+                });
                 return;
             }
+            clearFieldValidation('graph-query-input');
             
             queryStatus.textContent = 'Executing...';
             queryStatus.className = 'status-executing';
             queryOutput.innerHTML = '<div class="loading">Executing graph query...</div>';
             
+            const startTime = Date.now();
             try {
-                const startTime = Date.now();
                 const token = authToken || localStorage.getItem('authToken');
                 
                 const response = await fetch(`${JSON_API_URL}/query/graph`, {
@@ -1950,30 +2385,86 @@ Last Updated: ${new Date().toLocaleString()}`;
                 const endTime = Date.now();
                 const executionTime = endTime - startTime;
                 
+                const result = await response.json().catch(() => ({}));
                 if (response.ok) {
-                    const result = await response.json();
-                    queryStatus.textContent = 'Success';
-                    queryStatus.className = 'status-success';
-                    queryTime.textContent = `Execution time: ${result.execution_time_ms?.toFixed(2) || executionTime}ms`;
                     
                     // Display results (optionally with chart from LLM suggestion)
                     if (result.success && result.data) {
+                        queryStatus.textContent = 'Success';
+                        queryStatus.className = 'status-success';
+                        queryTime.textContent = `Execution time: ${result.execution_time_ms?.toFixed(2) || executionTime}ms`;
                         displayGraphQueryResults(result.data, queryType, {
                             chartType: result.chart_type,
                             chartSubtype: result.chart_subtype,
                             echartsOption: result.echarts_option
                         });
+                        renderGraphSequence({
+                            startTime,
+                            endTime,
+                            status: 'OK',
+                            rowCount: getGraphRowCount(result),
+                            queryType,
+                            backendMs: result.execution_time_ms,
+                            detail: `Overall: ${getGraphRowCount(result)} row(s), ${queryType} execution.`,
+                            metrics: result.sequence_metrics
+                        });
+                    } else if (result.success) {
+                        queryStatus.textContent = 'No results';
+                        queryStatus.className = 'status-warning';
+                        queryTime.textContent = `Execution time: ${result.execution_time_ms?.toFixed(2) || executionTime}ms`;
+                        queryOutput.innerHTML = '<div class="info-message">Query executed successfully but no data returned.</div>';
+                        renderGraphSequence({
+                            startTime,
+                            endTime,
+                            status: 'OK',
+                            rowCount: 0,
+                            queryType,
+                            backendMs: result.execution_time_ms,
+                            detail: `Overall: 0 row(s), ${queryType} execution.`,
+                            metrics: result.sequence_metrics
+                        });
                     } else {
-                        queryOutput.innerHTML = '<div class="info-message">Query executed successfully but no data returned</div>';
+                        const errorMessage = getErrorMessageFromPayload(result, 'Graph query failed.');
+                        showGraphQueryError(errorMessage);
+                        queryTime.textContent = '';
+                        renderGraphSequence({
+                            startTime,
+                            endTime,
+                            status: 'FAILED',
+                            rowCount: 0,
+                            queryType,
+                            detail: errorMessage,
+                            metrics: result.sequence_metrics
+                        });
                     }
                 } else {
-                    const errorData = await response.json();
-                    showGraphQueryError(errorData.detail || 'Query failed');
+                    const errorMessage = getErrorMessageFromPayload(result, `HTTP ${response.status}: Query failed`);
+                    showGraphQueryError(errorMessage);
                     queryTime.textContent = '';
+                    renderGraphSequence({
+                        startTime,
+                        endTime,
+                        status: 'FAILED',
+                        rowCount: 0,
+                        queryType,
+                        detail: errorMessage,
+                        metrics: result.sequence_metrics
+                    });
                 }
             } catch (error) {
                 showGraphQueryError(`Error: ${error.message}`);
                 queryTime.textContent = '';
+                const endTime = Date.now();
+                renderGraphSequence({
+                    startTime,
+                    endTime,
+                    status: 'FAILED',
+                    rowCount: 0,
+                    queryType,
+                    detail: `Query failed: ${error.message}`
+                });
+            } finally {
+                restoreAction();
             }
         }
         
@@ -2141,14 +2632,28 @@ Last Updated: ${new Date().toLocaleString()}`;
             const errorsDiv = document.getElementById('nl-validation-errors');
             const viewCypherBtn = document.getElementById('view-generated-cypher-btn');
             const queryStatusEl = document.getElementById('graph-query-status');
+            const generateBtn = document.getElementById('nl-generate-cypher-btn');
+            const restoreAction = setActionPending(generateBtn, [
+                generateBtn,
+                document.getElementById('nl-ask-execute-btn'),
+                document.getElementById('execute-graph-query-btn'),
+                document.getElementById('clear-graph-query-btn'),
+                document.getElementById('load-saved-graph-queries-btn')
+            ], 'Generating...');
             if (!query) {
+                restoreAction();
+                setFieldValidation('nl-query-input', 'Enter a natural language question before generating Cypher.');
                 if (block) block.style.display = 'none';
                 if (viewCypherBtn) viewCypherBtn.style.display = 'none';
-                showGraphQueryError('Please enter a natural language question.');
+                if (queryStatusEl) { queryStatusEl.textContent = 'Validation needed'; queryStatusEl.className = 'status-warning'; }
+                const queryOutput = document.getElementById('graph-query-output');
+                if (queryOutput) queryOutput.innerHTML = '<div class="info-message">Add a natural language question, then generate Cypher.</div>';
                 return;
             }
+            clearFieldValidation('nl-query-input');
             const token = authToken || localStorage.getItem('authToken');
             if (!token) {
+                restoreAction();
                 showGraphQueryError('Please log in to use natural language queries.');
                 return;
             }
@@ -2159,6 +2664,7 @@ Last Updated: ${new Date().toLocaleString()}`;
             if (block) block.style.display = 'block';
             if (cypherPre) cypherPre.textContent = 'Generating…';
             if (viewCypherBtn) { viewCypherBtn.style.display = 'inline-block'; viewCypherBtn.textContent = 'Hide generated Cypher'; }
+            const startTime = Date.now();
             try {
                 const res = await fetch(`${JSON_API_URL}/query/graph/natural-language`, {
                     method: 'POST',
@@ -2166,6 +2672,7 @@ Last Updated: ${new Date().toLocaleString()}`;
                     body: JSON.stringify({ query: query, execute: false })
                 });
                 const text = await res.text();
+                const endTime = Date.now();
                 let result;
                 try { result = JSON.parse(text); } catch (_) { result = {}; }
                 if (!res.ok) {
@@ -2204,8 +2711,28 @@ Last Updated: ${new Date().toLocaleString()}`;
                         queryOutput.innerHTML = '<div class="info-message">Generated Cypher has validation errors (see above). Fix the query or try rephrasing your question.</div>';
                     }
                 }
+                renderGraphNaturalLanguageSequence({
+                    startTime,
+                    endTime,
+                    status: result.valid ? 'OK' : 'FAILED',
+                    rowCount: 0,
+                    executed: false,
+                    metrics: result.sequence_metrics,
+                    detail: result.valid ? 'Overall: Cypher generated, execution skipped.' : 'Overall: generated Cypher failed validation.'
+                });
             } catch (e) {
                 showGraphQueryError('Error: ' + (e.message || String(e)));
+                const endTime = Date.now();
+                renderGraphNaturalLanguageSequence({
+                    startTime,
+                    endTime,
+                    status: 'FAILED',
+                    rowCount: 0,
+                    executed: false,
+                    detail: `Overall: ${e.message || String(e)}`
+                });
+            } finally {
+                restoreAction();
             }
         }
         
@@ -2224,12 +2751,26 @@ Last Updated: ${new Date().toLocaleString()}`;
             const queryStatus = document.getElementById('graph-query-status');
             const queryTime = document.getElementById('graph-query-time');
             const viewCypherBtn = document.getElementById('view-generated-cypher-btn');
+            const askExecuteBtn = document.getElementById('nl-ask-execute-btn');
+            const restoreAction = setActionPending(askExecuteBtn, [
+                askExecuteBtn,
+                document.getElementById('nl-generate-cypher-btn'),
+                document.getElementById('execute-graph-query-btn'),
+                document.getElementById('clear-graph-query-btn'),
+                document.getElementById('load-saved-graph-queries-btn')
+            ], 'Running...');
             if (!query) {
-                showGraphQueryError('Please enter a natural language question.');
+                restoreAction();
+                setFieldValidation('nl-query-input', 'Enter a natural language question before running it.');
+                queryStatus.textContent = 'Validation needed';
+                queryStatus.className = 'status-warning';
+                queryOutput.innerHTML = '<div class="info-message">Add a natural language question, then ask and execute.</div>';
                 return;
             }
+            clearFieldValidation('nl-query-input');
             const token = authToken || localStorage.getItem('authToken');
             if (!token) {
+                restoreAction();
                 showGraphQueryError('Please log in to use natural language queries.');
                 return;
             }
@@ -2250,6 +2791,7 @@ Last Updated: ${new Date().toLocaleString()}`;
             if (cypherPreEl) cypherPreEl.textContent = 'Generating…';
             if (viewCypherBtn) { viewCypherBtn.style.display = 'inline-block'; viewCypherBtn.textContent = 'Hide generated Cypher'; }
             var headers = { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token };
+            var startTime = Date.now();
             try {
                 setNLStepStatus(1, 'active');
                 var schemaRes = await fetch(JSON_API_URL + '/query/graph/schema', { headers: { 'Authorization': 'Bearer ' + token } });
@@ -2271,6 +2813,7 @@ Last Updated: ${new Date().toLocaleString()}`;
                     body: JSON.stringify({ query: query, execute: true })
                 });
                 var nlText = await nlRes.text();
+                var endTime = Date.now();
                 var nlResult = {};
                 try { nlResult = JSON.parse(nlText); } catch (_) {}
                 if (!nlRes.ok) {
@@ -2279,6 +2822,15 @@ Last Updated: ${new Date().toLocaleString()}`;
                     setNLStepStatus(2, 'error');
                     setNLStepStatus(3, 'error');
                     setNLStepStatus(4, 'error');
+                    renderGraphNaturalLanguageSequence({
+                        startTime,
+                        endTime,
+                        status: 'FAILED',
+                        rowCount: 0,
+                        executed: false,
+                        metrics: nlResult.sequence_metrics,
+                        detail: 'Overall: natural language request failed.'
+                    });
                     return;
                 }
                 if (!nlResult.valid) {
@@ -2287,6 +2839,15 @@ Last Updated: ${new Date().toLocaleString()}`;
                     setNLStepStatus(2, 'error');
                     setNLStepStatus(3, 'error');
                     setNLStepStatus(4, 'error');
+                    renderGraphNaturalLanguageSequence({
+                        startTime,
+                        endTime,
+                        status: 'FAILED',
+                        rowCount: 0,
+                        executed: false,
+                        metrics: nlResult.sequence_metrics,
+                        detail: 'Overall: generated Cypher failed validation.'
+                    });
                     return;
                 }
                 setNLStepStatus(2, 'done');
@@ -2310,6 +2871,15 @@ Last Updated: ${new Date().toLocaleString()}`;
                     queryStatus.className = nlResult.valid ? 'status-success' : 'status-error';
                     queryTime.textContent = '';
                     queryOutput.innerHTML = '<div class="info-message">Cypher generated. Run it with "Execute Graph Query" to see results and charts.</div>';
+                    renderGraphNaturalLanguageSequence({
+                        startTime,
+                        endTime,
+                        status: nlResult.valid ? 'OK' : 'FAILED',
+                        rowCount: 0,
+                        executed: false,
+                        metrics: nlResult.sequence_metrics,
+                        detail: 'Overall: Cypher generated, execution skipped.'
+                    });
                     return;
                 }
                 setNLStepStatus(4, 'done');
@@ -2322,12 +2892,41 @@ Last Updated: ${new Date().toLocaleString()}`;
                         chartSubtype: nlResult.chart_subtype,
                         echartsOption: nlResult.echarts_option
                     });
+                    renderGraphNaturalLanguageSequence({
+                        startTime,
+                        endTime,
+                        status: 'OK',
+                        rowCount: getGraphRowCount(nlResult),
+                        executed: true,
+                        metrics: nlResult.sequence_metrics,
+                        detail: `Overall: ${getGraphRowCount(nlResult)} row(s), natural language execution.`
+                    });
                 } else {
                     queryOutput.innerHTML = '<div class="error-message">' + escapeHtml(nlResult.detail || nlResult.error || 'No data returned') + '</div>';
+                    renderGraphNaturalLanguageSequence({
+                        startTime,
+                        endTime,
+                        status: 'FAILED',
+                        rowCount: 0,
+                        executed: true,
+                        metrics: nlResult.sequence_metrics,
+                        detail: `Overall: ${nlResult.detail || nlResult.error || 'No data returned'}`
+                    });
                 }
             } catch (e) {
                 showGraphQueryError('Error: ' + (e.message || String(e)));
                 queryTime.textContent = '';
+                var endTime = Date.now();
+                renderGraphNaturalLanguageSequence({
+                    startTime,
+                    endTime,
+                    status: 'FAILED',
+                    rowCount: 0,
+                    executed: true,
+                    detail: `Overall: ${e.message || String(e)}`
+                });
+            } finally {
+                restoreAction();
             }
         }
         

@@ -754,6 +754,7 @@ def natural_language_graph_query(
     (entities and relationships), generate a Cypher query validated against the schema,
     and optionally execute it (with Cerbos authorization).
     """
+    request_start = time.time()
     try:
         from puppygraph_client import get_puppygraph_client
         from nl_to_cypher import nl_to_cypher
@@ -771,13 +772,17 @@ def natural_language_graph_query(
 
     try:
         puppygraph = get_puppygraph_client()
+        schema_start = time.time()
         schema = puppygraph.get_schema()
+        schema_ms = (time.time() - schema_start) * 1000
     except Exception as e:
         logger.error(f"Failed to get schema: {e}", exc_info=True)
         raise HTTPException(status_code=502, detail=f"Failed to retrieve schema: {str(e)}")
 
     try:
+        model_start = time.time()
         result = nl_to_cypher(query_text, schema)
+        model_ms = (time.time() - model_start) * 1000
     except Exception as e:
         logger.error(f"NL to Cypher failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Could not generate Cypher: {str(e)}")
@@ -797,6 +802,11 @@ def natural_language_graph_query(
             "valid": False,
             "validation_errors": result.get("validation_errors", []),
             "executed": False,
+            "sequence_metrics": {
+                "schema_ms": schema_ms,
+                "model_ms": model_ms,
+                "backend_ms": (time.time() - request_start) * 1000,
+            },
         }
 
     # Optional: validate that PuppyGraph accepts the Cypher (dry run)
@@ -814,6 +824,11 @@ def natural_language_graph_query(
                 "valid": False,
                 "validation_errors": result.get("validation_errors", []) + [f"PuppyGraph execution: {exec_err}"],
                 "executed": False,
+                "sequence_metrics": {
+                    "schema_ms": schema_ms,
+                    "model_ms": model_ms,
+                    "backend_ms": (time.time() - request_start) * 1000,
+                },
             }
 
     if not execute:
@@ -824,6 +839,11 @@ def natural_language_graph_query(
             "valid": True,
             "validation_errors": [],
             "executed": False,
+            "sequence_metrics": {
+                "schema_ms": schema_ms,
+                "model_ms": model_ms,
+                "backend_ms": (time.time() - request_start) * 1000,
+            },
         }
 
     # Execute via same authorization path as /query/graph
@@ -863,6 +883,7 @@ def natural_language_graph_query(
         **cypher_metadata,
         **resource_attributes,
     }
+    cerbos_start = time.time()
     allowed, reason, policy = cerbos_client.check_resource_access(
         user_id=str(current_user.id),
         user_email=current_user.email,
@@ -873,6 +894,7 @@ def natural_language_graph_query(
         attributes=cerbos_attributes,
         principal_attributes=user_attributes,
     )
+    cerbos_ms = (time.time() - cerbos_start) * 1000
     log_authorization_decision(
         user_id=str(current_user.id),
         user_email=current_user.email,
@@ -888,11 +910,11 @@ def natural_language_graph_query(
         raise HTTPException(status_code=403, detail=reason or "Not authorized to execute this graph query.")
 
     try:
-        import time
         start = time.time()
         pg = get_puppygraph_client()
         data = pg.execute_cypher(query)
         elapsed_ms = (time.time() - start) * 1000
+        total_backend_ms = (time.time() - request_start) * 1000
 
         # Optional: suggest chart type and ECharts option via LLM (NL path: use user question as context)
         chart_info = {"chart_type": "table_only", "chart_subtype": None, "echarts_option": None}
@@ -916,6 +938,13 @@ def natural_language_graph_query(
             "executed": True,
             "data": data,
             "execution_time_ms": elapsed_ms,
+            "sequence_metrics": {
+                "schema_ms": schema_ms,
+                "model_ms": model_ms,
+                "cerbos_ms": cerbos_ms,
+                "engine_ms": elapsed_ms,
+                "backend_ms": total_backend_ms,
+            },
             "chart_type": chart_info.get("chart_type", "table_only"),
             "chart_subtype": chart_info.get("chart_subtype"),
             "echarts_option": chart_info.get("echarts_option"),
@@ -933,6 +962,7 @@ def execute_graph_query(
     db: Session = Depends(get_db)
 ):
     """Execute a graph query (Cypher or Gremlin) via PuppyGraph with Cerbos authorization."""
+    request_start = time.time()
     # Check if PuppyGraph is available
     try:
         from puppygraph_client import get_puppygraph_client
@@ -1010,6 +1040,7 @@ def execute_graph_query(
     action = "execute" if query_type == "cypher" else "graph_expand"
     
     # Check if user can execute graph queries
+    cerbos_start = time.time()
     allowed, reason, policy = cerbos_client.check_resource_access(
         user_id=str(current_user.id),
         user_email=current_user.email,
@@ -1020,6 +1051,7 @@ def execute_graph_query(
         attributes=cerbos_attributes,
         principal_attributes=user_attributes  # Phase 3: Pass user attributes for ABAC
     )
+    cerbos_ms = (time.time() - cerbos_start) * 1000
     
     # Log authorization decision (both allowed and denied)
     log_authorization_decision(
@@ -1040,7 +1072,6 @@ def execute_graph_query(
     # Execute graph query via PuppyGraph
     try:
         puppygraph = get_puppygraph_client()
-        import time
         start_time = time.time()
         
         if query_type == "cypher":
@@ -1049,6 +1080,7 @@ def execute_graph_query(
             result = puppygraph.execute_gremlin(query)
         
         execution_time = (time.time() - start_time) * 1000
+        total_backend_ms = (time.time() - request_start) * 1000
 
         # Optional: suggest chart type and ECharts option via LLM (Cypher path: use query as context)
         chart_info = {"chart_type": "table_only", "chart_subtype": None, "echarts_option": None}
@@ -1070,6 +1102,11 @@ def execute_graph_query(
             "data": result,
             "query_type": query_type,
             "execution_time_ms": execution_time,
+            "sequence_metrics": {
+                "cerbos_ms": cerbos_ms,
+                "engine_ms": execution_time,
+                "backend_ms": total_backend_ms
+            },
             "query": query,
             "chart_type": chart_info.get("chart_type", "table_only"),
             "chart_subtype": chart_info.get("chart_subtype"),
@@ -1084,6 +1121,9 @@ def execute_graph_query(
 def execute_sql_query(query_data: dict, current_user: User = Depends(get_current_user), db: Session = Depends(get_db), query_db: Session = Depends(get_query_db)):
     """Execute SQL query through Trino with Cerbos authorization."""
     import json
+    request_start = time.time()
+    cerbos_ms = 0
+    engine_ms = 0
     
     print(f"DEBUG: /query endpoint called with data: {query_data}")
     print(f"DEBUG: Current user: {current_user.email}, ID: {current_user.id}")
@@ -1108,6 +1148,7 @@ def execute_sql_query(query_data: dict, current_user: User = Depends(get_current
     try:
         print("DEBUG: Calling Cerbos for authorization...")
         cerbos_client = get_cerbos_client()
+        cerbos_start = time.time()
         allowed, reason, policy = cerbos_client.check_query_permission(
             user_id=str(current_user.id),
             user_email=current_user.email,
@@ -1116,6 +1157,7 @@ def execute_sql_query(query_data: dict, current_user: User = Depends(get_current
             path="/v1/statement",
             query_body=sql_query
         )
+        cerbos_ms = (time.time() - cerbos_start) * 1000
         
         # Log authorization decision for UI display
         log_authorization_decision(
@@ -1163,7 +1205,9 @@ def execute_sql_query(query_data: dict, current_user: User = Depends(get_current
         print(f"DEBUG: Catalog: {catalog}, Schema: {schema}")
         
         # Execute query with automatic result handling
+        engine_start = time.time()
         with trino_client.execute_query(username, catalog, schema, sql_query) as (success, data, columns, error):
+            engine_ms = (time.time() - engine_start) * 1000
             if success:
                 # Query executed successfully - store results immediately
                 from datetime import datetime
@@ -1226,22 +1270,39 @@ def execute_sql_query(query_data: dict, current_user: User = Depends(get_current
                     "info_uri": None,   # Not needed with client approach
                     "message": "Query executed successfully using Trino client",
                     "data": data,
-                    "columns": columns
+                    "columns": columns,
+                    "sequence_metrics": {
+                        "cerbos_ms": cerbos_ms,
+                        "engine_ms": engine_ms,
+                        "backend_ms": (time.time() - request_start) * 1000
+                    }
                 }
             else:
                 # Query failed
                 return {
                     "success": False,
                     "error": error or "Unknown Trino error",
-                    "code": "trino_error"
+                    "code": "trino_error",
+                    "sequence_metrics": {
+                        "cerbos_ms": cerbos_ms,
+                        "engine_ms": engine_ms,
+                        "backend_ms": (time.time() - request_start) * 1000
+                    }
                 }
                 
     except Exception as e:
         print(f"DEBUG: Error executing query with Trino client: {e}")
+        if "engine_start" in locals() and engine_ms == 0:
+            engine_ms = (time.time() - engine_start) * 1000
         return {
             "success": False,
             "error": f"Failed to execute query: {str(e)}",
-            "code": "execution_error"
+            "code": "execution_error",
+            "sequence_metrics": {
+                "cerbos_ms": cerbos_ms,
+                "engine_ms": engine_ms,
+                "backend_ms": (time.time() - request_start) * 1000
+            }
         }
 
 
