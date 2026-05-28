@@ -24,8 +24,12 @@ CREATE TABLE IF NOT EXISTS queries (
     rows_returned INTEGER DEFAULT 0,
     bytes_processed BIGINT DEFAULT 0,
     trino_next_uri TEXT,
-    trino_info_uri TEXT
+    trino_info_uri TEXT,
+    trino_query_id VARCHAR(100)
 );
+
+ALTER TABLE queries
+ADD COLUMN IF NOT EXISTS trino_query_id VARCHAR(100);
 
 -- Table to store query result columns
 CREATE TABLE IF NOT EXISTS query_columns (
