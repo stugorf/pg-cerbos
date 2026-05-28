@@ -1,35 +1,40 @@
-# Cypher Query Authorization Lifecycle
+# Graph Query Authorization Lifecycle
 
-This document explains how a Cypher graph query moves through the policy registry: request intake, parsing, Cerbos authorization, approval or denial, and graph database execution. It is written for both technical readers who need implementation detail and product readers who need to understand what can be governed.
+This document explains how graph queries move through the policy registry: route selection, schema retrieval, analysis, Cerbos authorization, approval or denial, and graph database execution. It covers the local demo routes for PuppyGraph, Neo4j, and Apache Jena Fuseki.
 
 ## Executive Summary
 
-Cypher authorization is enforced before the graph database executes a query. The backend turns each query into a Cerbos resource with parsed metadata such as node labels, relationship types, traversal depth, query shape, team filters, region filters, PEP flags, and transaction thresholds. Cerbos evaluates that resource against the authenticated user, their roles, and their user attributes. Only allowed queries are sent to the configured graph execution engine.
+Graph authorization is enforced before any graph database executes a query. The backend turns each query into a Cerbos resource with analyzed metadata such as node labels, relationship types, traversal depth, query shape, team filters, region filters, PEP flags, and transaction thresholds. Cerbos evaluates that resource against the authenticated user, their roles, and their user attributes. Only allowed queries are sent to the selected graph execution engine.
 
-The default implementation uses PuppyGraph, and the backend also includes a Neo4j adapter. The lifecycle applies to any graph database or graph query service as long as the backend can retrieve schema context, execute the query language, and normalize results.
+The local demo routes query languages to backends:
+
+| UI language | Backend | Purpose |
+|---|---|---|
+| `cypher` | PuppyGraph | Existing openCypher path over Postgres-backed PuppyGraph mapping |
+| `gremlin` | PuppyGraph | Existing Gremlin path over the same PuppyGraph mapping |
+| `gql` | Neo4j | Neo4j adapter demonstration using GQL-compatible Cypher syntax |
+| `sparql` | Apache Jena Fuseki | RDF adapter demonstration over synced AML triples |
+
+Postgres `demo_data.aml` remains the source of truth. PuppyGraph reads those tables through its schema mapping, while the `graph-data-sync` Compose job refreshes Neo4j nodes/relationships and Fuseki RDF triples from the same tables so comparable graph questions can be run across routes.
 
 Product implication: policies can express graph-aware controls, not just "can this user query the graph?" Controls can differentiate junior analysts, senior analysts, managers, teams, regions, clearance levels, sensitive node types, sensitive relationship types, and high-risk query filters.
 
-Technical implication: the enforcement point is in FastAPI before execution. Graph queries now pass through a normalized analyzer boundary before Cerbos evaluation. Production deployments should set `GRAPH_QUERY_ANALYZER_URL` to a parser service backed by mature language parsers; the local Cypher analyzer remains a development fallback and is still regex-based.
+Technical implication: the enforcement point is in FastAPI before execution. Every graph query first resolves the selected route, retrieves that route's schema for validation and NLI, passes through the normalized analyzer boundary, then goes to Cerbos. Production deployments should set `GRAPH_QUERY_ANALYZER_URL` to a parser service backed by mature language parsers; the local Cypher analyzer remains a development fallback and is still regex-based.
 
 ## Lifecycle Diagram
 
 ```mermaid
 flowchart TD
     A[User submits graph request] --> B{Request type}
-    B -->|POST /query/graph| C[Direct Cypher or Gremlin]
-    B -->|POST /query/graph/natural-language| D[Fetch graph schema]
-    D --> E[Generate and validate Cypher]
-    E --> F{execute=true?}
-    F -->|No| G[Return generated Cypher only]
-    F -->|Yes| H[Use generated Cypher]
-    C --> I{Cypher?}
-    H --> I
-    I -->|No, other graph language| J[Analyze with configured graph-language analyzer]
-    I -->|Yes| K[Parse Cypher metadata]
-    K --> L[Extract resource attributes from WHERE and node properties]
+    B -->|POST /query/graph| C[Direct graph query]
+    B -->|POST /query/graph/natural-language| D[Resolve language route]
+    C --> D
+    D --> E[Fetch selected route schema]
+    E --> U[Generate or validate graph query]
+    U --> F{execute=true or direct?}
+    F -->|No| G[Return generated graph query only]
+    F -->|Yes| J[Analyze with graph-language analyzer]
     J --> M[Load user roles and attributes]
-    L --> M
     M --> N[Build Cerbos Principal and Resource]
     N --> O[Evaluate Cerbos policy]
     O -->|DENY or error| P[Return HTTP 403 and log decision]
@@ -45,10 +50,11 @@ There are two graph query paths:
 
 | Endpoint | Purpose | Execution behavior |
 |---|---|---|
-| `POST /query/graph` | Execute direct Cypher or Gremlin | Always authorizes before execution |
-| `POST /query/graph/natural-language` | Convert natural language to Cypher using the live graph schema | Returns generated Cypher when `execute=false`; authorizes and executes when `execute=true` |
+| `GET /query/graph/schema?language=...` | Retrieve schema for the selected graph route | Used by NLI and validation |
+| `POST /query/graph` | Execute a direct graph query for `cypher`, `gremlin`, `gql`, or `sparql` | Always fetches selected schema, analyzes, authorizes, then executes |
+| `POST /query/graph/natural-language` | Convert natural language to the selected graph language using that route's schema | Returns generated query when `execute=false`; authorizes and executes when `execute=true` |
 
-For direct Cypher, the user supplies:
+For a direct query, the user supplies:
 
 ```json
 {
@@ -66,7 +72,7 @@ For natural language execution, the user supplies:
 }
 ```
 
-The natural language path first retrieves the graph schema, generates Cypher, validates labels/relationships/properties against the schema, and then uses the same authorization path as direct Cypher.
+For natural language execution, the user also supplies the selected `type`. The backend retrieves the selected route schema, generates the target graph query language, validates it, and then uses the same authorization path as a direct graph query.
 
 ## Authentication Context
 
@@ -138,7 +144,7 @@ Important limitation: the local fallback parser uses regular expressions. It is 
 
 ## Cerbos Request Shape
 
-After parsing, the backend builds Cerbos attributes like this:
+After graph query analysis, the backend builds Cerbos attributes like this:
 
 ```json
 {
@@ -177,7 +183,7 @@ Then it calls Cerbos with:
 | Action | `execute` |
 | Principal roles | Database roles for the current user |
 | Principal attributes | Email, team, region, clearance level, department |
-| Resource attributes | Query text plus parsed Cypher metadata |
+| Resource attributes | Query text plus analyzed graph metadata |
 
 The Cerbos resource policy is `cerbos/policies/resource_policies/cypher_query.yaml`. It imports derived roles from `cerbos/policies/derived_roles/graph_query_roles.yaml` and validates attributes with `cypher_query_resource.json` and `aml_principal.json`.
 
@@ -189,11 +195,12 @@ After authorization, execution is dispatched through `policy-registry/backend/gr
 
 | Adapter | Enabled by | Languages |
 |---|---|---|
-| PuppyGraph | `GRAPH_ENGINE=puppygraph` | `cypher`, `gremlin` |
-| Neo4j | `GRAPH_ENGINE=neo4j` | `cypher`, `gql` using the Neo4j Bolt driver |
-| Unsupported | Any other value | Returns `501` until implemented |
+| PuppyGraph | language route `cypher`, `gremlin` | openCypher and Gremlin over PuppyGraph |
+| Neo4j | language route `gql` | GQL-compatible Cypher over the Neo4j Bolt driver |
+| Fuseki | language route `sparql` | SPARQL over Apache Jena Fuseki |
+| Unsupported | any unmapped language | Returns `501` until implemented |
 
-Neo4j settings are provided with `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, and optional `NEO4J_DATABASE`. SPARQL is accepted by the UI/analyzer contract, but needs a SPARQL-capable execution adapter before it can run.
+Neo4j settings are provided with `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, and optional `NEO4J_DATABASE`. Fuseki settings are provided with `FUSEKI_URL` and `FUSEKI_DATASET`.
 
 ## What Policies Can Evaluate
 
@@ -417,9 +424,9 @@ That requirement is represented by several cooperating rules:
 
 ## Execution
 
-When Cerbos allows a query, the backend sends it to the configured graph database adapter. In this repository, that adapter is `PuppyGraphClient.execute_cypher(query)`. A Neo4j-backed deployment would use the same authorization lifecycle, but replace the execution adapter with a Neo4j client while preserving the pre-execution Cerbos check.
+When Cerbos allows a query, the backend sends it to the graph database adapter selected by the query language. PuppyGraph handles `cypher` and `gremlin`, Neo4j handles `gql`, and Fuseki handles `sparql`. All routes preserve the same pre-execution Cerbos check.
 
-The current PuppyGraph adapter prefers Bolt via the Neo4j driver and falls back to PuppyGraph HTTP execution only if the Neo4j driver is unavailable. Results are converted into JSON-safe structures so graph `Node`, `Relationship`, and `Path` objects can be returned to the UI.
+The PuppyGraph and Neo4j adapters use the Neo4j driver for Bolt-compatible results and convert graph `Node`, `Relationship`, and `Path` objects into JSON-safe structures. The Fuseki adapter converts SPARQL JSON bindings into the shared `{results, columns}` shape used by the UI.
 
 The response includes:
 
@@ -672,7 +679,7 @@ The current implementation supports these product controls:
 | Region-based customer access | Yes | Based on parsed region filters |
 | PEP clearance control | Yes | Requires clearance >= 3 |
 | High-value transaction control | Yes | Based on parsed amount thresholds |
-| Natural language governance | Yes | Generated Cypher is authorized before execution |
+| Natural language governance | Yes | Generated graph queries are authorized before execution |
 | Result visualization | Yes | Chart suggestion happens after allowed execution |
 | Formal user groups | No | Model as roles or attributes unless a group model is added |
 | Field-level graph redaction | No | Current graph path allows or denies whole query execution |
@@ -688,17 +695,18 @@ Use these files when changing or reviewing behavior:
 | `policy-registry/backend/graph_engine_adapter.py` | Execution adapter boundary for PuppyGraph, Neo4j, and future engines |
 | `policy-registry/backend/graph_query_analyzer.py` | Analyzer boundary, remote sidecar client, normalized contract, fail-closed behavior |
 | `policy-registry/backend/cypher_parser.py` | Local development fallback for Cypher metadata extraction |
+| `graph-data-sync/` | Startup sync from Postgres AML tables into Neo4j and Fuseki |
 | `graph-query-analyzer/` | Dockerized Java analyzer sidecar exposing `POST /analyze` |
 | `policy-registry/backend/cerbos_client.py` | Cerbos principal/resource construction |
-| `policy-registry/backend/puppygraph_client.py` | Current graph database adapter: PuppyGraph execution and JSON-safe result conversion |
-| `cerbos/policies/resource_policies/cypher_query.yaml` | Cypher authorization rules |
+| `policy-registry/backend/puppygraph_client.py` | PuppyGraph execution and JSON-safe result conversion |
+| `cerbos/policies/resource_policies/cypher_query.yaml` | Graph query authorization rules |
 | `cerbos/policies/derived_roles/graph_query_roles.yaml` | Role hierarchy |
 | `cerbos/policies/_schemas/cypher_query_resource.json` | Resource attribute schema |
 | `cerbos/policies/_schemas/aml_principal.json` | Principal attribute schema |
 
 ## Design Considerations
 
-The strongest current guarantees are role, depth, label, relationship type, team, region, PEP, and transaction-threshold checks for common Cypher query shapes.
+The strongest current guarantees are role, depth, label, relationship type, team, region, PEP, and transaction-threshold checks for common graph query shapes.
 
 Areas to improve for production hardening:
 

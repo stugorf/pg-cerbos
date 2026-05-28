@@ -29,7 +29,9 @@ Essential docs for PG Cerbos. For full project overview, quick start, and archit
 
 | Doc | Purpose |
 |-----|---------|
-| [NATURAL_LANGUAGE_GRAPH_QUERY.md](./NATURAL_LANGUAGE_GRAPH_QUERY.md) | Natural language → Cypher (NLI), optional OpenAI setup |
+| [GRAPH_QUERY_LIFECYCLE.md](./GRAPH_QUERY_LIFECYCLE.md) | Graph query routing, schema retrieval, authorization, and execution lifecycle |
+| [GRAPH_QUERY_LIFECYCLE.html](./GRAPH_QUERY_LIFECYCLE.html) | HTML graph query lifecycle with HTML/CSS architecture diagrams |
+| [NATURAL_LANGUAGE_GRAPH_QUERY.md](./NATURAL_LANGUAGE_GRAPH_QUERY.md) | Natural language graph query generation, selected-route schemas, optional OpenAI setup |
 | [PUPPYGRAPH_SCHEMA_RESOLUTION_AND_TESTING.md](./PUPPYGRAPH_SCHEMA_RESOLUTION_AND_TESTING.md) | PuppyGraph schema setup, validation, and testing |
 
 Cerbos policy docs: <https://docs.cerbos.dev/cerbos/latest/policies/>

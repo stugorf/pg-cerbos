@@ -1,4 +1,4 @@
-import io, os, tarfile, time, yaml
+import io, os, tarfile, time, threading, yaml
 import logging
 from datetime import datetime
 from typing import List, Optional
@@ -24,7 +24,7 @@ from query_db import get_query_db, get_query_db_sync, init_query_database
 import requests
 from startup_initializer import ensure_iceberg_demo_data, get_startup_init_status
 from graph_query_analyzer import analyze_graph_query, GraphQueryAnalysisError
-from graph_engine_adapter import get_graph_engine_adapter, GraphEngineExecutionError
+from graph_engine_adapter import get_graph_engine_adapter, get_graph_route, GraphEngineExecutionError
 try:
     from cerbos_client import get_cerbos_client
     CERBOS_CLIENT_AVAILABLE = True
@@ -112,10 +112,13 @@ security = HTTPBearer()
 
 @API.on_event("startup")
 def initialize_demo_data_on_startup():
-    try:
-        ensure_iceberg_demo_data()
-    except Exception as exc:
-        logger.error("Startup demo data initialization failed: %s", exc, exc_info=True)
+    def run_initializer():
+        try:
+            ensure_iceberg_demo_data()
+        except Exception as exc:
+            logger.error("Startup demo data initialization failed: %s", exc, exc_info=True)
+
+    threading.Thread(target=run_initializer, name="startup-demo-data-init", daemon=True).start()
 
 def get_db():
     db = SessionLocal()
@@ -211,70 +214,40 @@ def _check_cerbos():
 
 def _check_trino():
     try:
-        from trino_client import get_trino_client
-        query = "SELECT coordinator, state FROM system.runtime.nodes"
-        with get_trino_client().execute_query("readiness", "system", "runtime", query) as (
-            success,
-            data,
-            _columns,
-            error,
-        ):
-            if success:
-                active = [row for row in data if str(row[1]).lower() == "active"]
-                coordinators = [row for row in active if bool(row[0])]
-                workers = [row for row in active if not bool(row[0])]
-                if coordinators and workers:
-                    return _component(
-                        "ready",
-                        True,
-                        f"{len(coordinators)} coordinator, {len(workers)} worker(s) active",
-                    )
-                if coordinators:
-                    return _component(
-                        "warning",
-                        False,
-                        f"{len(coordinators)} coordinator active, no active workers",
-                    )
-                return _component("error", False, "no active Trino coordinator")
-            return _component("error", False, error or "Trino query failed")
+        info_url = os.getenv("TRINO_INFO_URL", "http://trino-coordinator:8080/v1/info")
+        response = requests.get(info_url, timeout=2)
+        if response.ok:
+            info = response.json()
+            version = info.get("nodeVersion", {}).get("version", "unknown")
+            environment = info.get("environment", "unknown")
+            return _component(
+                "ready",
+                True,
+                f"Trino coordinator reachable ({environment}, {version})",
+            )
+        return _component("error", False, f"HTTP {response.status_code}")
     except Exception as exc:
         return _component("error", False, str(exc))
 
 
 def _check_iceberg():
     init_status = get_startup_init_status()
-    if init_status.get("state") not in ("ready", "running"):
+    state = init_status.get("state", "error")
+    if state == "ready":
+        return _component("ready", True, "Iceberg demo data initialized")
+    if state in ("pending", "running"):
         return _component(
-            init_status.get("state", "error"),
+            "warning",
             False,
-            init_status.get("error") or "startup initializer has not completed",
+            "Iceberg demo data initialization is still running",
         )
-
-    try:
-        from trino_client import get_trino_client
-        checks = [
-            "SELECT COUNT(*) FROM iceberg.sales.person",
-            "SELECT COUNT(*) FROM iceberg.demo.employee_performance",
-        ]
-        counts = []
-        for query in checks:
-            with get_trino_client().execute_query("readiness", "iceberg", "information_schema", query) as (
-                success,
-                data,
-                _columns,
-                error,
-            ):
-                if not success:
-                    return _component("error", False, error or "Iceberg table check failed")
-                counts.append(data[0][0] if data else 0)
-
+    if state == "failed":
         return _component(
-            "ready",
-            True,
-            f"sales.person={counts[0]}, demo.employee_performance={counts[1]}",
+            "warning",
+            False,
+            init_status.get("error") or "Iceberg demo data initialization failed",
         )
-    except Exception as exc:
-        return _component("error", False, str(exc))
+    return _component("error", False, init_status.get("error") or f"unknown initializer state: {state}")
 
 
 def _check_puppygraph():
@@ -888,11 +861,12 @@ def delete_policy(policy_id: int, current_user: User = Depends(get_current_user)
 
 # Graph schema endpoint: Retrieve schema from PuppyGraph for NL interface and validation
 @API.get("/query/graph/schema")
-def get_graph_schema(current_user: User = Depends(get_current_user)):
+def get_graph_schema(language: Optional[str] = None, current_user: User = Depends(get_current_user)):
     """Retrieve the current graph schema from the configured graph engine."""
+    query_type = (language or "cypher").lower()
     try:
-        schema = get_graph_engine_adapter().get_schema()
-        return {"success": True, "schema": schema}
+        schema = get_graph_engine_adapter(query_type).get_schema()
+        return {"success": True, "schema": schema, "route": get_graph_route(query_type)}
     except GraphEngineExecutionError as e:
         raise HTTPException(status_code=e.status_code, detail=str(e))
     except Exception as e:
@@ -908,13 +882,13 @@ def natural_language_graph_query(
     db: Session = Depends(get_db),
 ):
     """
-    Accept a natural language question, retrieve schema from the graph engine, analyze the query
-    (entities and relationships), generate a Cypher query validated against the schema,
+    Accept a natural language question, retrieve schema from the selected graph engine, analyze the query
+    (entities and relationships), generate a graph query validated against the schema,
     and optionally execute it (with Cerbos authorization).
     """
     request_start = time.time()
     try:
-        from nl_to_cypher import nl_to_cypher
+        from nl_to_cypher import nl_to_graph_query
     except ImportError as ex:
         logger.warning("Natural language endpoint import failed: %s", ex)
         raise HTTPException(
@@ -922,14 +896,17 @@ def natural_language_graph_query(
             detail=f"Natural language query not available: {str(ex)}",
         )
     query_text = (body.get("query") or "").strip()
+    query_type = (body.get("type") or "cypher").strip().lower()
     execute = body.get("execute", False)
 
     if not query_text:
         raise HTTPException(status_code=400, detail="Natural language query is required.")
+    if query_type not in ["cypher", "gremlin", "sparql", "gql"]:
+        raise HTTPException(status_code=400, detail="Query type must be 'cypher', 'gremlin', 'sparql', or 'gql'")
 
     try:
         schema_start = time.time()
-        graph_engine = get_graph_engine_adapter()
+        graph_engine = get_graph_engine_adapter(query_type)
         schema = graph_engine.get_schema()
         schema_ms = (time.time() - schema_start) * 1000
     except GraphEngineExecutionError as e:
@@ -940,23 +917,26 @@ def natural_language_graph_query(
 
     try:
         model_start = time.time()
-        result = nl_to_cypher(query_text, schema)
+        result = nl_to_graph_query(query_text, schema, query_type)
         model_ms = (time.time() - model_start) * 1000
     except Exception as e:
-        logger.error(f"NL to Cypher failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Could not generate Cypher: {str(e)}")
+        logger.error(f"NL to graph query failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Could not generate graph query: {str(e)}")
 
     logger.info(
-        "NLI query=%r source=%s valid=%s cypher_preview=%s",
+        "NLI query=%r language=%s source=%s valid=%s graph_query_preview=%s",
         query_text[:100],
+        query_type,
         result.get("source"),
         result.get("valid"),
-        (result.get("cypher") or "")[:200],
+        (result.get("query") or result.get("cypher") or "")[:200],
     )
     if not result["valid"]:
         return {
             "success": False,
-            "cypher": result.get("cypher", ""),
+            "cypher": result.get("query", result.get("cypher", "")),
+            "query": result.get("query", result.get("cypher", "")),
+            "query_type": query_type,
             "analysis": result.get("analysis", {}),
             "valid": False,
             "validation_errors": result.get("validation_errors", []),
@@ -968,17 +948,20 @@ def natural_language_graph_query(
             },
         }
 
-    # Optional: validate that the configured graph engine accepts the Cypher (dry run)
+    # Optional: validate that the selected graph engine accepts the generated query (dry run)
     validate_with_puppygraph = body.get("validate_with_puppygraph", False)
-    if validate_with_puppygraph and result.get("cypher"):
+    generated_query = result.get("query") or result.get("cypher") or ""
+    if validate_with_puppygraph and generated_query:
         try:
-            graph_engine.execute("cypher", result["cypher"])
+            graph_engine.execute(query_type, generated_query)
         except GraphEngineExecutionError as e:
             exec_err = str(e)
             logger.warning("Graph engine validation run failed: %s", exec_err)
             return {
                 "success": False,
-                "cypher": result["cypher"],
+                "cypher": generated_query,
+                "query": generated_query,
+                "query_type": query_type,
                 "analysis": result.get("analysis", {}),
                 "valid": False,
                 "validation_errors": result.get("validation_errors", []) + [f"Graph engine execution: {exec_err}"],
@@ -994,7 +977,9 @@ def natural_language_graph_query(
             logger.warning("Graph engine validation run failed: %s", exec_err)
             return {
                 "success": False,
-                "cypher": result["cypher"],
+                "cypher": generated_query,
+                "query": generated_query,
+                "query_type": query_type,
                 "analysis": result.get("analysis", {}),
                 "valid": False,
                 "validation_errors": result.get("validation_errors", []) + [f"Graph engine execution: {exec_err}"],
@@ -1009,7 +994,9 @@ def natural_language_graph_query(
     if not execute:
         return {
             "success": True,
-            "cypher": result["cypher"],
+            "cypher": generated_query,
+            "query": generated_query,
+            "query_type": query_type,
             "analysis": result.get("analysis", {}),
             "valid": True,
             "validation_errors": [],
@@ -1022,8 +1009,7 @@ def natural_language_graph_query(
         }
 
     # Execute via same authorization path as /query/graph
-    query = result["cypher"]
-    query_type = "cypher"
+    query = generated_query
     try:
         cerbos_attributes = analyze_graph_query(
             language=query_type,
@@ -1068,7 +1054,7 @@ def natural_language_graph_query(
 
     try:
         start = time.time()
-        data = get_graph_engine_adapter().execute("cypher", query)
+        data = graph_engine.execute(query_type, query)
         elapsed_ms = (time.time() - start) * 1000
         total_backend_ms = (time.time() - request_start) * 1000
 
@@ -1087,7 +1073,9 @@ def natural_language_graph_query(
 
         return {
             "success": True,
-            "cypher": result["cypher"],
+            "cypher": query,
+            "query": query,
+            "query_type": query_type,
             "analysis": result.get("analysis", {}),
             "valid": True,
             "validation_errors": [],
@@ -1112,17 +1100,17 @@ def natural_language_graph_query(
         raise HTTPException(status_code=500, detail=f"Query execution failed: {str(e)}")
 
 
-# Graph Query endpoint: Execute Cypher/Gremlin queries via PuppyGraph with Cerbos authorization
+# Graph Query endpoint: Execute graph queries with Cerbos authorization
 @API.post("/query/graph")
 def execute_graph_query(
     query_data: dict,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Execute a graph query (Cypher or Gremlin) via PuppyGraph with Cerbos authorization."""
+    """Execute a graph query via the selected graph backend with Cerbos authorization."""
     request_start = time.time()
     query = query_data.get("query", "").strip()
-    query_type = query_data.get("type", "cypher").lower()  # "cypher" or "gremlin"
+    query_type = query_data.get("type", "cypher").lower()
     
     if not query:
         raise HTTPException(status_code=400, detail="Query is required")
@@ -1131,9 +1119,21 @@ def execute_graph_query(
         raise HTTPException(status_code=400, detail="Query type must be 'cypher', 'gremlin', 'sparql', or 'gql'")
 
     try:
+        schema_start = time.time()
+        graph_engine = get_graph_engine_adapter(query_type)
+        schema = graph_engine.get_schema()
+        schema_ms = (time.time() - schema_start) * 1000
+    except GraphEngineExecutionError as e:
+        raise HTTPException(status_code=e.status_code, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to get graph schema for query validation: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"Failed to retrieve schema: {str(e)}")
+
+    try:
         cerbos_attributes = analyze_graph_query(
             language=query_type,
             query=query,
+            schema=schema,
             mode="read",
         )
         logger.debug(f"Graph query analysis: {cerbos_attributes}")
@@ -1188,16 +1188,16 @@ def execute_graph_query(
     # Execute graph query via the configured graph engine adapter
     try:
         start_time = time.time()
-        result = get_graph_engine_adapter().execute(query_type, query)
+        result = graph_engine.execute(query_type, query)
         
         execution_time = (time.time() - start_time) * 1000
         total_backend_ms = (time.time() - request_start) * 1000
 
-        # Optional: suggest chart type and ECharts option via LLM (Cypher path: use query as context)
+        # Optional: suggest chart type and ECharts option via LLM.
         chart_info = {"chart_type": "table_only", "chart_subtype": None, "echarts_option": None}
         try:
             from chart_suggestion import suggest_chart_and_echarts
-            logger.info("Chart suggestion: calling for Cypher execute")
+            logger.info("Chart suggestion: calling for graph query execute")
             chart_info = suggest_chart_and_echarts(query, result, is_natural_language=False)
             if chart_info.get("chart_type") != "table_only":
                 logger.info("Chart suggestion: type=%s subtype=%s has_option=%s", chart_info.get("chart_type"), chart_info.get("chart_subtype"), chart_info.get("echarts_option") is not None)
@@ -1206,14 +1206,15 @@ def execute_graph_query(
         except Exception as chart_err:
             logger.info("Chart suggestion skipped: %s", chart_err)
 
-        # Parse and return result
-        # PuppyGraph response format may vary, return raw result for now
+        # Graph adapter response format may vary, return raw result for now.
         return {
             "success": True,
             "data": result,
             "query_type": query_type,
+            "route": get_graph_route(query_type),
             "execution_time_ms": execution_time,
             "sequence_metrics": {
+                "schema_ms": schema_ms,
                 "cerbos_ms": cerbos_ms,
                 "engine_ms": execution_time,
                 "backend_ms": total_backend_ms

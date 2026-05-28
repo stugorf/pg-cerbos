@@ -1043,3 +1043,129 @@ def nl_to_cypher(
         "validation_errors": validation_errors,
         "source": "llm",
     }
+
+
+def nl_to_graph_query(
+    natural_language_query: str,
+    schema: Dict[str, Any],
+    language: str = "cypher",
+) -> Dict[str, Any]:
+    """
+    Generate a graph query for the selected route.
+
+    Cypher and GQL share the existing Cypher generator. Gremlin and SPARQL use
+    schema-derived rule-based generation so those demo routes work without adding
+    new model prompts in the first multi-backend version.
+    """
+    language_normalized = (language or "cypher").strip().lower()
+    if language_normalized in {"cypher", "gql"}:
+        result = nl_to_cypher(natural_language_query, schema)
+        generated = result.get("cypher", "")
+        result["query"] = generated
+        result["query_type"] = language_normalized
+        if language_normalized == "gql" and generated:
+            result["source"] = f"{result.get('source', 'llm')}_gql_compatible"
+        return result
+
+    query_text = (natural_language_query or "").strip()
+    if not query_text:
+        return {
+            "query": "",
+            "cypher": "",
+            "analysis": {},
+            "valid": False,
+            "validation_errors": ["Empty query"],
+            "source": "rule_based",
+            "query_type": language_normalized,
+        }
+
+    analysis = analyze_natural_language(query_text, schema)
+    if language_normalized == "gremlin":
+        generated = generate_gremlin(analysis, schema)
+    elif language_normalized == "sparql":
+        generated = generate_sparql(analysis, schema)
+    else:
+        return {
+            "query": "",
+            "cypher": "",
+            "analysis": analysis,
+            "valid": False,
+            "validation_errors": [f"Unsupported graph query language: {language}"],
+            "source": "rule_based",
+            "query_type": language_normalized,
+        }
+
+    return {
+        "query": generated,
+        "cypher": generated,
+        "analysis": analysis,
+        "valid": bool(generated),
+        "validation_errors": [] if generated else ["Could not generate graph query from schema."],
+        "source": "rule_based",
+        "query_type": language_normalized,
+    }
+
+
+def generate_gremlin(analysis: Dict[str, Any], schema: Dict[str, Any]) -> str:
+    edge_map = get_edges_by_label(schema)
+    entities = analysis.get("entities", [])
+    relationships = analysis.get("relationships", [])
+    limit = int(analysis.get("limit") or 25)
+    chain = _build_path_chain(entities, relationships, edge_map)
+    if not chain:
+        label = entities[0] if entities else (sorted(get_vertex_labels(schema))[0] if get_vertex_labels(schema) else "")
+        return f"g.V().hasLabel('{label}').limit({limit}).valueMap(true)" if label else "g.V().limit(0)"
+
+    first_label = chain[0][0]
+    traversal = f"g.V().hasLabel('{first_label}')"
+    for _, edge, _ in chain:
+        if edge:
+            traversal += f".out('{edge}')"
+    traversal += f".limit({limit}).valueMap(true)"
+    return traversal
+
+
+def generate_sparql(analysis: Dict[str, Any], schema: Dict[str, Any]) -> str:
+    edge_map = get_edges_by_label(schema)
+    entities = analysis.get("entities", [])
+    relationships = analysis.get("relationships", [])
+    limit = int(analysis.get("limit") or 25)
+    chain = _build_path_chain(entities, relationships, edge_map)
+    lines = ["PREFIX aml: <urn:aml:>", "SELECT *", "WHERE {"]
+
+    if not chain:
+        label = entities[0] if entities else (sorted(get_vertex_labels(schema))[0] if get_vertex_labels(schema) else "")
+        if not label:
+            return "PREFIX aml: <urn:aml:>\nSELECT * WHERE { ?s ?p ?o } LIMIT 0"
+        lines.append(f"  ?{_sparql_var(label)} a aml:{label} .")
+    else:
+        seen = set()
+        for from_v, edge, to_v in chain:
+            from_var = _sparql_var(from_v)
+            if from_v not in seen:
+                lines.append(f"  ?{from_var} a aml:{from_v} .")
+                seen.add(from_v)
+            if edge:
+                to_var = _sparql_var(to_v)
+                lines.append(f"  ?{from_var} aml:{edge} ?{to_var} .")
+                if to_v not in seen:
+                    lines.append(f"  ?{to_var} a aml:{to_v} .")
+                    seen.add(to_v)
+
+    amount_filter = analysis.get("amount_filter")
+    if amount_filter and amount_filter.get("attribute") and amount_filter.get("vertex"):
+        var = _sparql_var(amount_filter["vertex"])
+        attr = amount_filter["attribute"]
+        value = amount_filter["value"]
+        op = amount_filter.get("op", ">")
+        lines.append(f"  ?{var} aml:{attr} ?{attr} .")
+        lines.append(f"  FILTER (?{attr} {op} {value})")
+
+    lines.append("}")
+    lines.append(f"LIMIT {limit}")
+    return "\n".join(lines)
+
+
+def _sparql_var(label: str) -> str:
+    name = re.sub(r"[^A-Za-z0-9_]", "", label or "item")
+    return name[:1].lower() + name[1:] if name else "item"

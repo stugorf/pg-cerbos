@@ -1,10 +1,12 @@
 import pytest
 
 from graph_engine_adapter import (
+    FusekiEngineAdapter,
     GraphEngineExecutionError,
     Neo4jEngineAdapter,
     PuppyGraphEngineAdapter,
     UnsupportedGraphEngineAdapter,
+    get_graph_route,
 )
 
 
@@ -53,3 +55,49 @@ def test_unsupported_adapter_fails_with_501():
         adapter.execute("cypher", "MATCH (n) RETURN n")
 
     assert exc.value.status_code == 501
+
+
+def test_language_routes_select_demo_backends():
+    assert get_graph_route("cypher") == {"language": "cypher", "engine": "puppygraph"}
+    assert get_graph_route("gremlin") == {"language": "gremlin", "engine": "puppygraph"}
+    assert get_graph_route("gql") == {"language": "gql", "engine": "neo4j"}
+    assert get_graph_route("sparql") == {"language": "sparql", "engine": "fuseki"}
+
+
+def test_fuseki_adapter_rejects_non_sparql():
+    adapter = FusekiEngineAdapter(base_url="http://example.invalid", dataset="aml")
+
+    with pytest.raises(GraphEngineExecutionError) as exc:
+        adapter.execute("cypher", "MATCH (n) RETURN n")
+
+    assert exc.value.status_code == 501
+
+
+def test_fuseki_adapter_normalizes_sparql_results(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "head": {"vars": ["customer", "name"]},
+                "results": {
+                    "bindings": [
+                        {
+                            "customer": {"type": "uri", "value": "urn:aml:customer/1"},
+                            "name": {"type": "literal", "value": "John Smith"},
+                        }
+                    ]
+                },
+            }
+
+    def fake_post(*args, **kwargs):
+        return Response()
+
+    monkeypatch.setattr("graph_engine_adapter.requests.post", fake_post)
+    adapter = FusekiEngineAdapter(base_url="http://fuseki:3030", dataset="aml")
+
+    result = adapter.execute("sparql", "SELECT * WHERE { ?s ?p ?o }")
+
+    assert result["columns"] == ["customer", "name"]
+    assert result["results"] == [{"customer": "urn:aml:customer/1", "name": "John Smith"}]
