@@ -4,7 +4,7 @@
         <meta charset="utf-8" />
         <title>SQL Query Interface</title>
         <link rel="stylesheet" href="styles.css" />
-        <script>window.API_BASE = (new URL(document.location)).searchParams.get("api") || "http://localhost:8082";</script>
+        <script>window.API_BASE = ((new URL(document.location)).searchParams.get("api") || "/api").replace(/\/+$/, "");</script>
     </head>
     <body>
         <header>

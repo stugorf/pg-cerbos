@@ -7,8 +7,8 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>PG CERBOS - Authentication</title>
-    <link rel="stylesheet" href="auth-styles.css?v=1.0.9">
-    <script>window.API_BASE = (new URL(document.location)).searchParams.get("api") || "http://localhost:8082";</script>
+    <link rel="stylesheet" href="auth-styles.css?v=1.0.10">
+    <script>window.API_BASE = ((new URL(document.location)).searchParams.get("api") || "/api").replace(/\/+$/, "");</script>
     <!-- ECharts must load before Monaco's AMD loader (vs/loader.js) to avoid "one anonymous define per script" error -->
     <script src="/echarts.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
@@ -76,10 +76,44 @@
                     <button id="logout-btn" class="btn btn-secondary">Logout</button>
                 </div>
                 <div class="version-info">
-                    <span class="version-badge" id="header-version">v1.0.5</span>
-                    <span class="build-info" id="header-build">Build: 20260126_1200</span>
+                    <span class="version-badge" id="header-version">v1.0.10</span>
+                    <span class="build-info" id="header-build">Build: loading</span>
                 </div>
             </header>
+
+            <section class="readiness-strip" aria-label="Application readiness">
+                <div class="readiness-heading">
+                    <strong>System readiness</strong>
+                    <span id="readiness-updated">Checking...</span>
+                </div>
+                <button id="refresh-readiness-btn" class="readiness-refresh" type="button">Refresh</button>
+                <div class="readiness-grid" id="readiness-grid">
+                    <div class="readiness-item status-checking" data-component="frontend">
+                        <span class="readiness-dot"></span><span>Frontend</span>
+                    </div>
+                    <div class="readiness-item status-checking" data-component="backend">
+                        <span class="readiness-dot"></span><span>Backend API</span>
+                    </div>
+                    <div class="readiness-item status-checking" data-component="policy_db">
+                        <span class="readiness-dot"></span><span>Policy DB</span>
+                    </div>
+                    <div class="readiness-item status-checking" data-component="query_db">
+                        <span class="readiness-dot"></span><span>Query DB</span>
+                    </div>
+                    <div class="readiness-item status-checking" data-component="trino">
+                        <span class="readiness-dot"></span><span>Trino</span>
+                    </div>
+                    <div class="readiness-item status-checking" data-component="iceberg">
+                        <span class="readiness-dot"></span><span>Iceberg Data</span>
+                    </div>
+                    <div class="readiness-item status-checking" data-component="puppygraph">
+                        <span class="readiness-dot"></span><span>PuppyGraph</span>
+                    </div>
+                    <div class="readiness-item status-checking" data-component="cerbos">
+                        <span class="readiness-dot"></span><span>Cerbos</span>
+                    </div>
+                </div>
+            </section>
 
             <!-- Tab Content -->
             <div class="tab-content">
@@ -300,7 +334,7 @@
                             <button id="refresh-architecture-btn" class="btn btn-secondary">Refresh Diagram</button>
                         </div>
                         <div id="architecture-diagram" class="architecture-diagram">
-                            <pre id="architecture-content" class="architecture-content"></pre>
+                            <div id="architecture-content" class="architecture-content"></div>
                         </div>
                         <div class="architecture-legend">
                             <h4>Component Legend</h4>
@@ -394,8 +428,8 @@
             <!-- Version Footer -->
             <div class="version-footer">
                 <div class="footer-content">
-                    <span class="footer-version" id="footer-version">PG CERBOS v1.0.9</span>
-                    <span class="footer-build" id="footer-build">Build 20260126_1200</span>
+                    <span class="footer-version" id="footer-version">PG CERBOS v1.0.10</span>
+                    <span class="footer-build" id="footer-build">Build loading</span>
                     <span class="footer-timestamp" id="footer-timestamp"></span>
                 </div>
             </div>
@@ -474,12 +508,12 @@
 
                 <script>
         // Configuration
-        const API_BASE = (new URL(document.location)).searchParams.get("api") || "http://localhost:8082";
+        const API_BASE = window.API_BASE || ((new URL(document.location)).searchParams.get("api") || "/api").replace(/\/+$/, "");
         const ENVOY_URL = "http://localhost:8081"; // Legacy - not used anymore
-        const JSON_API_URL = "http://localhost:8082"; // New JSON API endpoint
-        const VERSION = "1.0.9"; // Cache busting version - Sidebar app shell
+        const JSON_API_URL = API_BASE;
+        const VERSION = "1.0.10"; // Cache busting version - Same-origin API proxy hardening
         const TIMESTAMP = Date.now(); // Force cache refresh
-        const BUILD_ID = "20260126_1200"; // Build date: Jan 26, 2026 - Cerbos authorization logging feature
+        const BUILD_ID = "20260528_0300"; // Build date: May 28, 2026 - Same-origin /api hardening
             
             console.log('PG CERBOS Frontend loaded with version:', VERSION);
             console.log('JSON_API_URL:', JSON_API_URL);
@@ -546,27 +580,100 @@ LIMIT 50`
         // Event Listeners
         loginForm.addEventListener('submit', handleLogin);
         logoutBtn.addEventListener('click', handleLogout);
+        document.getElementById('refresh-readiness-btn')?.addEventListener('click', updateReadinessIndicators);
 
         // Check if user is already logged in
         checkAuthStatus();
 
+        let deployedBuildInfo = {
+            version: VERSION,
+            build_id: BUILD_ID,
+            build_time: null
+        };
+
         // Update version information
         updateVersionInfo();
+        loadBuildInfo();
+        updateReadinessIndicators();
+        setInterval(updateReadinessIndicators, 15000);
 
-        function updateVersionInfo() {
+        function updateVersionInfo(buildInfo = deployedBuildInfo) {
+            const version = buildInfo.version || VERSION;
+            const buildId = buildInfo.build_id || BUILD_ID;
+            const buildDate = buildInfo.build_time ? new Date(buildInfo.build_time) : null;
+            const buildDateText = buildDate && !Number.isNaN(buildDate.getTime())
+                ? buildDate.toLocaleString()
+                : new Date().toLocaleDateString();
+
             // Update header version
             const headerVersion = document.getElementById('header-version');
             const headerBuild = document.getElementById('header-build');
-            if (headerVersion) headerVersion.textContent = `v${VERSION}`;
-            if (headerBuild) headerBuild.textContent = `Build: ${BUILD_ID}`;
+            if (headerVersion) headerVersion.textContent = `v${version}`;
+            if (headerBuild) headerBuild.textContent = `Build: ${buildId}`;
             
             // Update footer version
             const footerVersion = document.getElementById('footer-version');
             const footerBuild = document.getElementById('footer-build');
             const footerTimestamp = document.getElementById('footer-timestamp');
-            if (footerVersion) footerVersion.textContent = `PG CERBOS v${VERSION}`;
-            if (footerBuild) footerBuild.textContent = `Build ${BUILD_ID}`;
-            if (footerTimestamp) footerTimestamp.textContent = new Date().toLocaleDateString();
+            if (footerVersion) footerVersion.textContent = `PG CERBOS v${version}`;
+            if (footerBuild) footerBuild.textContent = `Build ${buildId}`;
+            if (footerTimestamp) footerTimestamp.textContent = buildDateText;
+        }
+
+        async function loadBuildInfo() {
+            try {
+                const response = await fetch(`/build-info.json?ts=${Date.now()}`, { cache: 'no-store' });
+                if (!response.ok) return;
+                const buildInfo = await response.json();
+                deployedBuildInfo = {
+                    version: buildInfo.version || VERSION,
+                    build_id: buildInfo.build_id || BUILD_ID,
+                    build_time: buildInfo.build_time || null
+                };
+                updateVersionInfo(deployedBuildInfo);
+            } catch (error) {
+                console.warn('Could not load build info:', error);
+            }
+        }
+
+        function setReadinessItem(component, status, detail) {
+            const item = document.querySelector(`.readiness-item[data-component="${component}"]`);
+            if (!item) return;
+            const normalized = status || 'checking';
+            item.classList.remove('status-ready', 'status-error', 'status-warning', 'status-checking');
+            item.classList.add(`status-${normalized}`);
+            item.title = detail || '';
+        }
+
+        async function updateReadinessIndicators() {
+            setReadinessItem('frontend', 'ready', `Build ${deployedBuildInfo.build_id || BUILD_ID}`);
+            setReadinessItem('backend', 'checking', 'Checking backend API');
+
+            try {
+                const response = await fetch(`${API_BASE}/readiness?ts=${Date.now()}`, { cache: 'no-store' });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const readiness = await response.json();
+                setReadinessItem('backend', readiness.ok ? 'ready' : 'warning', readiness.status || 'Backend reachable');
+
+                const components = readiness.components || {};
+                Object.entries(components).forEach(([name, component]) => {
+                    const status = component.ok ? 'ready' : (component.status === 'warning' ? 'warning' : 'error');
+                    setReadinessItem(name, status, component.detail || component.status || '');
+                });
+
+                const updated = document.getElementById('readiness-updated');
+                if (updated) {
+                    const checkedAt = readiness.checked_at ? new Date(readiness.checked_at) : new Date();
+                    updated.textContent = `Updated ${checkedAt.toLocaleTimeString()}`;
+                }
+            } catch (error) {
+                setReadinessItem('backend', 'error', error.message);
+                ['policy_db', 'query_db', 'trino', 'iceberg', 'puppygraph', 'cerbos'].forEach(component => {
+                    setReadinessItem(component, 'warning', 'Waiting for backend readiness response');
+                });
+                const updated = document.getElementById('readiness-updated');
+                if (updated) updated.textContent = 'Backend readiness unavailable';
+            }
         }
 
         async function checkAuthStatus() {
@@ -722,7 +829,10 @@ LIMIT 50`
             cards.innerHTML = steps.map((step, index) => {
                 const start = step.start || Date.now();
                 const end = step.end || start;
-                const statusClass = step.status === 'OK' ? 'ok' : 'error';
+                const normalizedStatus = String(step.status || '').toLowerCase();
+                const statusClass = normalizedStatus === 'ok'
+                    ? 'ok'
+                    : (normalizedStatus === 'skipped' || normalizedStatus === 'warning' ? 'warning' : 'error');
                 return `
                     <div class="agent-sequence-card">
                         <div class="agent-sequence-step">${index + 1}</div>
@@ -763,6 +873,14 @@ LIMIT 50`
                         end: endTime,
                         durationMs,
                         detail: 'empty SQL'
+                    },
+                    {
+                        name: 'trino.execute',
+                        status: 'SKIPPED',
+                        start: endTime,
+                        end: endTime,
+                        durationMs: 0,
+                        detail: 'skipped because SQL validation failed'
                     },
                     {
                         name: 'query.metrics',
@@ -828,6 +946,14 @@ LIMIT 50`
                         end: endTime,
                         durationMs,
                         detail: `empty ${queryType} query`
+                    },
+                    {
+                        name: 'puppygraph.execute',
+                        status: 'SKIPPED',
+                        start: endTime,
+                        end: endTime,
+                        durationMs: 0,
+                        detail: `skipped because ${queryType} validation failed`
                     },
                     {
                         name: 'query.metrics',
@@ -929,6 +1055,17 @@ LIMIT 50`
                         detail: status === 'OK' ? 'completed' : 'skipped'
                     }
                 );
+            } else {
+                steps.push({
+                    name: 'puppygraph.execute',
+                    status: 'SKIPPED',
+                    start: modelEnd,
+                    end: modelEnd,
+                    durationMs: 0,
+                    detail: status === 'OK'
+                        ? 'skipped; generated Cypher was not executed'
+                        : 'skipped because Cypher generation or validation failed'
+                });
             }
 
             steps.push({
@@ -1057,7 +1194,6 @@ LIMIT 50`
                     requestBody: requestBody,
                     authToken: authToken ? 'Present' : 'Missing'
                 });
-
                 const response = await fetch(`${JSON_API_URL}/query`, {
                     method: 'POST',
                     headers: {
@@ -1069,7 +1205,6 @@ LIMIT 50`
 
                 const endTime = Date.now();
                 const executionTime = endTime - startTime;
-
                 const data = await response.json().catch(() => ({}));
                 if (response.ok) {
                     
@@ -2113,128 +2248,124 @@ LIMIT 50`
         function loadArchitectureDiagram() {
             const diagramContent = document.getElementById('architecture-content');
             if (!diagramContent) return;
-            
-            const architectureDiagram = `┌─────────────────────────────────────────────────────────────────────────────┐
-│                          User Interface Layer                               │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────────────┐ │
-│  │   Auth UI        │  │  Policy Editor   │  │    Query UI              │ │
-│  │  (Login/Admin)   │  │  (Cerbos YAML)   │  │  • SQL (Trino)            │ │
-│  └────────┬─────────┘  └────────┬─────────┘  │  • Cypher (PuppyGraph)    │ │
-│           │                      │            │  • Gremlin (PuppyGraph)   │ │
-│           └──────────────────────┼────────────┘                          │ │
-│                                  │                                        │ │
-│                          ┌───────▼────────┐                              │ │
-│                          │  Cerbos Logs   │                              │ │
-│                          │  Viewer Tab    │                              │ │
-│                          └────────────────┘                              │ │
-└───────────────────────────────────┬─────────────────────────────────────────┘
-                                    │
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    Policy Registry Frontend (Nginx)                         │
-│                         Port 8083                                           │
-│              Serves static HTML/CSS/JS files                                │
-└───────────────────────────────────┬─────────────────────────────────────────┘
-                                    │ HTTP Requests
-                                    ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│              Policy Registry Backend (FastAPI)                              │
-│                         Port 8082                                           │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │  • Authentication (JWT)                                              │  │
-│  │  • User/Role/Permission Management                                   │  │
-│  │  • Cerbos Policy Management (CRUD)                                    │  │
-│  │  • SQL Query Execution (Trino Client)                                 │  │
-│  │  • Graph Query Execution (PuppyGraph Client)                          │  │
-│  │  • Authorization Decision Logging                                     │  │
-│  │  • Cerbos Logs API                                                    │  │
-│  │  • AML API Endpoints (PoC)                                            │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
-└─────────┬───────────────────────────────────────┬───────────────────────────┘
-          │                                       │
-          │ ALL QUERIES AUTHORIZED VIA CERBOS     │
-          │ (gRPC)                                │
-          ▼                                       │
-┌─────────────────────────────────────────────────┴───────────────────────────┐
-│                         Cerbos PDP (gRPC)                                  │
-│                         Port 3593                                          │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │  Policy Evaluation (YAML Policies)                                   │  │
-│  │                                                                      │  │
-│  │  • Resource Policy (postgres, iceberg, alert, case, transaction)    │  │
-│  │  • Principal Policy (roles: aml_analyst, aml_manager, auditor)     │  │
-│  │  • Derived Roles (case_assignee for ownership-based access)         │  │
-│  │  • Audit Logging                                                     │  │
-│  │                                                                      │  │
-│  │  Policy Storage: /policies/*.yaml                                    │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
-└─────────┬───────────────────────────────────────┬───────────────────────────┘
-          │                                       │
-          │ IF ALLOWED                            │ IF ALLOWED
-          │                                       │
-          ▼                                       ▼
-┌──────────────────────────┐        ┌───────────────────────────────────────┐
-│        Trino Cluster      │        │      PuppyGraph (Graph Engine)        │
-│  ┌─────────────────┐     │        │  Ports 8081/8182/7687                 │
-│  │  Coordinator     │     │        │  ┌────────────────────────────────┐  │
-│  │  Port 8080       │     │        │  │ • openCypher Queries           │  │
-│  │                  │     │        │  │ • Gremlin Queries               │  │
-│  │ • Query Planning │     │        │  │ • Graph Traversals             │  │
-│  │ • Coordination   │     │        │  │ • Postgres Translation (JDBC) │  │
-│  └─────────────────┘     │        │  │ • AML Schema Mapping            │  │
-│  ┌─────────────────┐     │        │  └────────────────────────────────┘  │
-│  │    Worker       │     │        └───────────────┬───────────────────────┘
-│  │  (internal)     │     │                        │
-│  │                 │     │                        │ JDBC
-│  │ • Query Exec    │     │                        │
-│  │ • Data Proc     │     │                        ▼
-│  └─────────────────┘     │        ┌───────────────────────────────────────┐
-└───────────┬───────────────┘        │      PostgreSQL (System of Record)    │
-            │                        │         Port 5434                      │
-            │ SQL                    │  ┌────────────────────────────────┐  │
-            ▼                        │  │ • demo_data                     │  │
-┌───────────────────────────────────┐│  │ • policy_store                  │  │
-│      Data Sources                  ││  │ • nessie                        │  │
-│  • PostgreSQL (Port 5434)         ││  │ • aml.* (AML PoC tables)        │  │
-│  • Iceberg (MinIO + Nessie)        ││  └────────────────────────────────┘  │
-└───────────────────────────────────┘└───────────────────────────────────────┘
-                                                                              
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    Additional Storage Services                              │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐      │
-│  │ Query Results DB │  │     MinIO         │  │     Nessie        │      │
-│  │   Port 5433      │  │   Port 9000/9001  │  │   Port 19120      │      │
-│  │                  │  │                   │  │                   │      │
-│  │ • query_results  │  │ • S3 Storage     │  │ • Catalog         │      │
-│  │ • query_logs     │  │ • Iceberg Data    │  │ • Version Control │      │
-│  │ • query_stats    │  │ • Parquet Files  │  │ • Schema Mgmt     │      │
-│  └──────────────────┘  └──────────────────┘  └──────────────────┘      │
-└─────────────────────────────────────────────────────────────────────────────┘
 
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    Query Authorization Flow                                  │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  SQL Query Flow:                                                            │
-│  User → Backend → Cerbos (authorize) → Trino → Postgres/Iceberg            │
-│                                                                             │
-│  Graph Query Flow:                                                          │
-│  User → Backend → Cerbos (authorize) → PuppyGraph → Postgres               │
-│                                                                             │
-│  All queries (SQL, Cypher, Gremlin) are authorized via Cerbos before       │
-│  execution. Cerbos evaluates policies based on:                            │
-│  • Principal: user ID, roles, attributes                                   │
-│  • Resource: kind, ID, attributes (e.g., owner_user_id, status)            │
-│  • Action: query, view, graph_expand, etc.                                 │
-└─────────────────────────────────────────────────────────────────────────────┘
+            diagramContent.innerHTML = `
+                <div class="architecture-updated">Last updated ${escapeHtml(new Date().toLocaleString())}</div>
+                <div class="architecture-map">
+                    <section class="architecture-lane architecture-lane-ui">
+                        <div class="architecture-lane-label">UI</div>
+                        <div class="architecture-node architecture-node-wide">
+                            <span class="architecture-node-kicker">Nginx · 8083</span>
+                            <strong>Policy Registry Frontend</strong>
+                            <p>Auth, SQL query, graph query, policy admin, readiness, and architecture tabs.</p>
+                        </div>
+                    </section>
 
-Last Updated: ${new Date().toLocaleString()}`;
-            
-            diagramContent.textContent = architectureDiagram;
+                    <div class="architecture-arrow-row"><span>same-origin /api proxy</span></div>
+
+                    <section class="architecture-lane architecture-lane-api">
+                        <div class="architecture-lane-label">API</div>
+                        <div class="architecture-node architecture-node-wide">
+                            <span class="architecture-node-kicker">FastAPI · 8082</span>
+                            <strong>Policy Registry Backend</strong>
+                            <p>JWT auth, admin APIs, query orchestration, readiness checks, result formatting, NL-to-Cypher, and audit logging.</p>
+                        </div>
+                    </section>
+
+                    <div class="architecture-split">
+                        <div class="architecture-flow">
+                            <h4>SQL Path</h4>
+                            <div class="architecture-flow-row">
+                                <div class="architecture-node">
+                                    <span class="architecture-node-kicker">gRPC · 3593</span>
+                                    <strong>Cerbos PDP</strong>
+                                    <p>Authorizes SQL access before Trino execution.</p>
+                                </div>
+                                <span class="architecture-arrow">then</span>
+                                <div class="architecture-node">
+                                    <span class="architecture-node-kicker">Trino · 8080</span>
+                                    <strong>Coordinator + Worker</strong>
+                                    <p>Plans and executes federated SQL across Postgres and Iceberg.</p>
+                                </div>
+                            </div>
+                            <div class="architecture-store-grid">
+                                <div class="architecture-store">
+                                    <strong>PostgreSQL</strong>
+                                    <span>demo_data, policy_store, nessie</span>
+                                </div>
+                                <div class="architecture-store">
+                                    <strong>Iceberg</strong>
+                                    <span>Nessie catalog + MinIO warehouse</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="architecture-flow">
+                            <h4>Graph Path</h4>
+                            <div class="architecture-flow-row">
+                                <div class="architecture-node">
+                                    <span class="architecture-node-kicker">gRPC · 3593</span>
+                                    <strong>Cerbos PDP</strong>
+                                    <p>Authorizes Cypher and Gremlin requests before graph execution.</p>
+                                </div>
+                                <span class="architecture-arrow">then</span>
+                                <div class="architecture-node">
+                                    <span class="architecture-node-kicker">PuppyGraph · 8081/8182/7687</span>
+                                    <strong>Graph Engine</strong>
+                                    <p>Serves openCypher, Gremlin, schema, and AML graph traversal over Postgres data.</p>
+                                </div>
+                            </div>
+                            <div class="architecture-store-grid">
+                                <div class="architecture-store">
+                                    <strong>Postgres14</strong>
+                                    <span>AML source tables for PuppyGraph</span>
+                                </div>
+                                <div class="architecture-store">
+                                    <strong>Graph Schema</strong>
+                                    <span>Mounted PuppyGraph AML mapping</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <section class="architecture-lane architecture-lane-support">
+                        <div class="architecture-lane-label">Support</div>
+                        <div class="architecture-support-grid">
+                            <div class="architecture-support">
+                                <strong>Query Results DB · 5433</strong>
+                                <span>Query history, columns, row values, stats.</span>
+                            </div>
+                            <div class="architecture-support">
+                                <strong>MinIO · 9000/9001</strong>
+                                <span>S3-compatible warehouse bucket for Iceberg.</span>
+                            </div>
+                            <div class="architecture-support">
+                                <strong>Nessie · 19120</strong>
+                                <span>Iceberg catalog and version metadata.</span>
+                            </div>
+                            <div class="architecture-support">
+                                <strong>OpenAI API</strong>
+                                <span>Natural language Cypher and chart suggestions when configured.</span>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section class="architecture-notes">
+                        <div>
+                            <strong>Authorization checkpoint</strong>
+                            <span>Every SQL, Cypher, and Gremlin execution is checked by Cerbos before reaching Trino or PuppyGraph.</span>
+                        </div>
+                        <div>
+                            <strong>Startup data</strong>
+                            <span>Backend startup initializes Iceberg demo tables; minio-init ensures the warehouse bucket exists.</span>
+                        </div>
+                        <div>
+                            <strong>Readiness</strong>
+                            <span>The UI status strip polls backend readiness for Cerbos, Trino workers, PuppyGraph, Iceberg data, and databases.</span>
+                        </div>
+                    </section>
+                </div>
+            `;
         }
 
         function initializeAdminFeatures() {
@@ -2295,6 +2426,12 @@ Last Updated: ${new Date().toLocaleString()}`;
             resetGraphQueryChartsSection();
         }
 
+        function resetCurrentGraphExecutionState(chartMessage) {
+            resetGraphQueryChartsSection(chartMessage);
+            const queryTime = document.getElementById('graph-query-time');
+            if (queryTime) queryTime.textContent = '';
+        }
+
         function showSavedGraphQueries() {
             const content = `
                 <div class="saved-queries-list">
@@ -2345,6 +2482,7 @@ Last Updated: ${new Date().toLocaleString()}`;
             
             if (!query) {
                 restoreAction();
+                resetCurrentGraphExecutionState('Charts will appear after a graph query is executed.');
                 setFieldValidation('graph-query-input', 'Enter a graph query before running it.');
                 queryStatus.textContent = 'Validation needed';
                 queryStatus.className = 'status-warning';
@@ -2361,6 +2499,7 @@ Last Updated: ${new Date().toLocaleString()}`;
                 return;
             }
             clearFieldValidation('graph-query-input');
+            resetCurrentGraphExecutionState('Charts will refresh after this graph query finishes.');
             
             queryStatus.textContent = 'Executing...';
             queryStatus.className = 'status-executing';
@@ -2413,6 +2552,7 @@ Last Updated: ${new Date().toLocaleString()}`;
                         queryStatus.className = 'status-warning';
                         queryTime.textContent = `Execution time: ${result.execution_time_ms?.toFixed(2) || executionTime}ms`;
                         queryOutput.innerHTML = '<div class="info-message">Query executed successfully but no data returned.</div>';
+                        resetGraphQueryChartsSection('No chart data returned for this result.');
                         renderGraphSequence({
                             startTime,
                             endTime,
@@ -2470,7 +2610,24 @@ Last Updated: ${new Date().toLocaleString()}`;
         
         function formatGraphCellValue(val) {
             if (val === null || val === undefined) return '';
+            if (Array.isArray(val)) {
+                return val.map(formatGraphCellValue).join(', ');
+            }
             if (typeof val === 'object' && !Array.isArray(val)) {
+                if (val._type === 'node') {
+                    const props = val.properties || {};
+                    const labels = Array.isArray(val.labels) ? val.labels.join(':') : '';
+                    const name = props.name || props.customer_id || props.account_id || props.txn_id || props.alert_id || props.case_id || props.note_id || props.sar_id;
+                    return name ? `${labels || 'node'} ${name}` : `${labels || 'node'} ${val.id || ''}`.trim();
+                }
+                if (val._type === 'relationship') {
+                    return `${val.type || 'relationship'} ${val.id || ''}`.trim();
+                }
+                if (val._type === 'path') {
+                    const nodes = Array.isArray(val.nodes) ? val.nodes.length : 0;
+                    const relationships = Array.isArray(val.relationships) ? val.relationships.length : 0;
+                    return `path (${nodes} node${nodes === 1 ? '' : 's'}, ${relationships} relationship${relationships === 1 ? '' : 's'})`;
+                }
                 if (typeof val.getTime === 'function') return val.toISOString().slice(0, 19).replace('T', ' ');
                 if (typeof val.toISOString === 'function') return val.toISOString().slice(0, 19).replace('T', ' ');
                 if (typeof val.iso_format === 'function') return String(val.iso_format()).slice(0, 19).replace('T', ' ');
@@ -2642,6 +2799,7 @@ Last Updated: ${new Date().toLocaleString()}`;
             ], 'Generating...');
             if (!query) {
                 restoreAction();
+                resetCurrentGraphExecutionState('Charts will appear after the generated Cypher is executed.');
                 setFieldValidation('nl-query-input', 'Enter a natural language question before generating Cypher.');
                 if (block) block.style.display = 'none';
                 if (viewCypherBtn) viewCypherBtn.style.display = 'none';
@@ -2651,9 +2809,11 @@ Last Updated: ${new Date().toLocaleString()}`;
                 return;
             }
             clearFieldValidation('nl-query-input');
+            resetCurrentGraphExecutionState('Charts will appear after the generated Cypher is executed.');
             const token = authToken || localStorage.getItem('authToken');
             if (!token) {
                 restoreAction();
+                resetCurrentGraphExecutionState('Charts will appear after the generated Cypher is executed.');
                 showGraphQueryError('Please log in to use natural language queries.');
                 return;
             }
@@ -2761,6 +2921,7 @@ Last Updated: ${new Date().toLocaleString()}`;
             ], 'Running...');
             if (!query) {
                 restoreAction();
+                resetCurrentGraphExecutionState('Charts will appear after this natural language query is executed.');
                 setFieldValidation('nl-query-input', 'Enter a natural language question before running it.');
                 queryStatus.textContent = 'Validation needed';
                 queryStatus.className = 'status-warning';
@@ -2771,10 +2932,12 @@ Last Updated: ${new Date().toLocaleString()}`;
             const token = authToken || localStorage.getItem('authToken');
             if (!token) {
                 restoreAction();
+                resetCurrentGraphExecutionState('Charts will appear after this natural language query is executed.');
                 showGraphQueryError('Please log in to use natural language queries.');
                 return;
             }
             queryTime.textContent = '';
+            resetCurrentGraphExecutionState('Charts will refresh after this natural language query finishes.');
             var stepsHtml = '<div id="nl-steps-container" class="nl-steps">' +
                 '<div class="nl-step nl-step-active" data-step="1"><span class="nl-step-dot"></span><span class="nl-step-label">Fetching schema</span></div>' +
                 '<div class="nl-step nl-step-pending" data-step="2"><span class="nl-step-dot"></span><span class="nl-step-label">Analyzing question &amp; generating Cypher</span></div>' +
@@ -2871,6 +3034,7 @@ Last Updated: ${new Date().toLocaleString()}`;
                     queryStatus.className = nlResult.valid ? 'status-success' : 'status-error';
                     queryTime.textContent = '';
                     queryOutput.innerHTML = '<div class="info-message">Cypher generated. Run it with "Execute Graph Query" to see results and charts.</div>';
+                    resetGraphQueryChartsSection('Charts will appear after the generated Cypher is executed.');
                     renderGraphNaturalLanguageSequence({
                         startTime,
                         endTime,
@@ -2939,14 +3103,16 @@ Last Updated: ${new Date().toLocaleString()}`;
             resetGraphQueryChartsSection();
         }
 
-        function resetGraphQueryChartsSection() {
+        function resetGraphQueryChartsSection(message) {
             if (graphQueryChartInstance) {
                 try { graphQueryChartInstance.dispose(); } catch (e) {}
                 graphQueryChartInstance = null;
             }
             const chartContainer = document.getElementById('graph-query-chart-container');
             if (chartContainer) {
-                chartContainer.innerHTML = '<p class="graph-query-chart-placeholder">Charts appear here when a query returns chart data (e.g. bar chart of amounts, graph of relationships).</p>';
+                chartContainer.innerHTML = '<p class="graph-query-chart-placeholder">' +
+                    escapeHtml(message || 'Charts appear here when a query returns chart data (e.g. bar chart of amounts, graph of relationships).') +
+                    '</p>';
             }
         }
         

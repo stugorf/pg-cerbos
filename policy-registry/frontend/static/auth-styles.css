@@ -65,24 +65,188 @@
 }
 
 .architecture-diagram {
-    background: #f8f9fa;
+    background: #ffffff;
     border: 1px solid #e1e5e9;
     border-radius: 8px;
-    padding: 20px;
+    padding: 0;
     margin-bottom: 20px;
-    overflow-x: auto;
+    overflow: hidden;
 }
 
 .architecture-content {
-    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Courier New', monospace;
-    font-size: 11px;
-    line-height: 1.4;
-    white-space: pre;
     margin: 0;
-    color: #333;
+    color: #172033;
     background: transparent;
     border: none;
     padding: 0;
+}
+
+.architecture-updated {
+    padding: 12px 18px;
+    border-bottom: 1px solid #e1e5e9;
+    background: #f8fafc;
+    color: #667085;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+.architecture-map {
+    padding: 18px;
+}
+
+.architecture-lane {
+    display: grid;
+    grid-template-columns: 82px minmax(0, 1fr);
+    gap: 14px;
+    align-items: stretch;
+    margin-bottom: 12px;
+}
+
+.architecture-lane-label {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    background: #172033;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.architecture-node,
+.architecture-support,
+.architecture-store {
+    border: 1px solid #d8dee8;
+    border-radius: 8px;
+    background: #f8fafc;
+    padding: 14px;
+    min-width: 0;
+}
+
+.architecture-node strong,
+.architecture-support strong,
+.architecture-store strong {
+    display: block;
+    color: #172033;
+    font-size: 15px;
+    line-height: 1.25;
+    margin-bottom: 6px;
+}
+
+.architecture-node p,
+.architecture-support span,
+.architecture-store span,
+.architecture-notes span {
+    color: #526077;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.architecture-node-kicker {
+    display: block;
+    color: #667085;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+}
+
+.architecture-node-wide {
+    background: #f4f7fb;
+}
+
+.architecture-arrow-row {
+    display: flex;
+    justify-content: center;
+    color: #667085;
+    font-size: 12px;
+    font-weight: 700;
+    margin: 0 0 12px;
+}
+
+.architecture-arrow-row span {
+    border: 1px solid #d8dee8;
+    border-radius: 999px;
+    padding: 5px 12px;
+    background: #ffffff;
+}
+
+.architecture-split {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    margin: 14px 0;
+}
+
+.architecture-flow {
+    border: 1px solid #d8dee8;
+    border-radius: 8px;
+    padding: 14px;
+    background: #ffffff;
+}
+
+.architecture-flow h4 {
+    margin: 0 0 12px;
+    color: #172033;
+    font-size: 16px;
+}
+
+.architecture-flow-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+}
+
+.architecture-arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 48px;
+    color: #667085;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+.architecture-store-grid,
+.architecture-support-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.architecture-support-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    margin-top: 0;
+}
+
+.architecture-support {
+    background: #fbfcfe;
+}
+
+.architecture-notes {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.architecture-notes div {
+    border-left: 4px solid #5f7eea;
+    border-radius: 6px;
+    background: #f4f7ff;
+    padding: 12px;
+}
+
+.architecture-notes strong {
+    display: block;
+    margin-bottom: 5px;
+    color: #172033;
+    font-size: 13px;
 }
 
 .architecture-legend {
@@ -128,8 +292,21 @@
         max-width: 120px;
     }
     
-    .architecture-content {
-        font-size: 9px;
+    .architecture-lane,
+    .architecture-split,
+    .architecture-flow-row,
+    .architecture-store-grid,
+    .architecture-support-grid,
+    .architecture-notes {
+        grid-template-columns: 1fr;
+    }
+
+    .architecture-lane-label {
+        min-height: 34px;
+    }
+
+    .architecture-arrow {
+        min-height: 24px;
     }
 }
 
@@ -437,6 +614,115 @@ body {
     font-weight: 600;
 }
 
+.readiness-strip {
+    flex: 0 0 auto;
+    padding: 10px 24px;
+    background: #ffffff;
+    border-bottom: 1px solid #d8dee8;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    min-height: 54px;
+}
+
+.readiness-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 150px;
+    color: #172033;
+}
+
+.readiness-heading strong {
+    font-size: 13px;
+    line-height: 1.2;
+}
+
+.readiness-heading span {
+    font-size: 12px;
+    color: #667085;
+}
+
+.readiness-refresh {
+    flex: 0 0 auto;
+    min-height: 28px;
+    padding: 5px 10px;
+    border: 1px solid #b8c2d0;
+    border-radius: 6px;
+    background: #f8fafc;
+    color: #172033;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.readiness-refresh:hover {
+    background: #edf2f7;
+}
+
+.readiness-grid {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+
+.readiness-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 28px;
+    padding: 5px 9px;
+    border: 1px solid #d8dee8;
+    border-radius: 6px;
+    background: #f8fafc;
+    color: #344054;
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
+.readiness-dot {
+    width: 8px;
+    height: 8px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: #98a2b3;
+}
+
+.readiness-item.status-ready {
+    border-color: #a6d7b8;
+    background: #eef8f1;
+    color: #175b2c;
+}
+
+.readiness-item.status-ready .readiness-dot {
+    background: #1f9d55;
+}
+
+.readiness-item.status-warning,
+.readiness-item.status-checking {
+    border-color: #efd58a;
+    background: #fff8e5;
+    color: #7a4f01;
+}
+
+.readiness-item.status-warning .readiness-dot,
+.readiness-item.status-checking .readiness-dot {
+    background: #d99000;
+}
+
+.readiness-item.status-error {
+    border-color: #efb5b5;
+    background: #fff1f1;
+    color: #8a1f1f;
+}
+
+.readiness-item.status-error .readiness-dot {
+    background: #d92d20;
+}
+
 .user-info {
     display: flex;
     align-items: center;
@@ -639,6 +925,10 @@ body {
 
 .agent-sequence-status.error {
     color: #9b2c2c;
+}
+
+.agent-sequence-status.warning {
+    color: #8a5a00;
 }
 
 .agent-sequence-time {

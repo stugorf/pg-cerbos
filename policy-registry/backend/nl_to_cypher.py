@@ -79,6 +79,24 @@ def get_vertex_attributes(schema: Dict[str, Any]) -> Dict[str, List[str]]:
     return attrs
 
 
+def get_vertex_id_attributes(schema: Dict[str, Any]) -> Dict[str, List[str]]:
+    """Map vertex label -> id field aliases. PuppyGraph exposes these via id(var), not var.id_alias."""
+    ids: Dict[str, List[str]] = {}
+    for v in schema.get("graph", {}).get("vertices", []):
+        label = v.get("label")
+        if not label:
+            continue
+        one_to_one = v.get("oneToOne") or {}
+        names: List[str] = []
+        id_fields = one_to_one.get("id") or {}
+        for f in (id_fields.get("fields") or []):
+            alias = f.get("alias") or f.get("field")
+            if alias and alias not in names:
+                names.append(alias)
+        ids[label] = names
+    return ids
+
+
 # Schema-derived: vertex label -> list of (attr_name, type) for attributes with type info
 _NUMERIC_TYPES = ("Decimal", "Int", "Float", "Long")
 
@@ -584,6 +602,44 @@ def _normalize_cypher(cypher: str) -> str:
     return cypher
 
 
+def _rewrite_return_id_fields(cypher: str, schema: Dict[str, Any]) -> str:
+    """
+    In PuppyGraph, vertex id fields declared under oneToOne.id are node ids and
+    come back as null when projected as var.id_alias. Rewrite only RETURN-list
+    projections to id(var) AS alias so generated Cypher displays useful IDs.
+    """
+    if not cypher or "RETURN" not in cypher.upper():
+        return cypher
+
+    var_to_label = _var_to_label_map(cypher)
+    id_attrs = get_vertex_id_attributes(schema)
+    if not var_to_label or not id_attrs:
+        return cypher
+
+    match = re.search(r"\bRETURN\b(?P<body>.*?)(?=\bORDER\s+BY\b|\bLIMIT\b|$)", cypher, re.IGNORECASE | re.DOTALL)
+    if not match:
+        return cypher
+
+    body = match.group("body")
+    rewritten = body
+    for var, label in var_to_label.items():
+        for attr in id_attrs.get(label, []):
+            pattern = re.compile(
+                rf"\b{re.escape(var)}\s*\.\s*{re.escape(attr)}\b(?:\s+AS\s+([A-Za-z_][A-Za-z0-9_]*))?",
+                re.IGNORECASE,
+            )
+
+            def replace_id_projection(match_obj: re.Match) -> str:
+                alias = match_obj.group(1) or attr
+                return f"id({var}) AS {alias}"
+
+            rewritten = pattern.sub(replace_id_projection, rewritten)
+
+    if rewritten == body:
+        return cypher
+    return cypher[:match.start("body")] + rewritten + cypher[match.end("body"):]
+
+
 # Keys (case-insensitive) whose values are redacted before sending schema to LLM
 _SCHEMA_CREDENTIAL_KEYS = frozenset(
     k.lower() for k in ("password", "secret", "api_key", "apikey", "token", "credentials", "jdbcUri", "username")
@@ -655,10 +711,12 @@ def _llm_client() -> Optional[Any]:
     api_key = os.environ.get("OPENAI_API_KEY", "").strip()
     if not api_key or not OPENAI_AVAILABLE:
         return None
-    base_url = os.environ.get("OPENAI_BASE_URL")
+    base_url = os.environ.get("OPENAI_BASE_URL", "").strip()
     client_kw: Dict[str, Any] = {"api_key": api_key}
     if base_url:
         client_kw["base_url"] = base_url
+    else:
+        client_kw["base_url"] = "https://api.openai.com/v1"
     return openai.OpenAI(**client_kw)
 
 
@@ -672,6 +730,22 @@ def _model_for_cypher() -> str:
         or os.environ.get("OPENAI_MODEL", "").strip()
         or "gpt-4o-mini"
     )
+
+
+def _token_limit_kw(model: str, token_limit: int) -> Dict[str, int]:
+    """Return the token limit parameter accepted by the configured model family."""
+    model_name = model.lower()
+    if model_name.startswith("gpt-5") or model_name.startswith("o"):
+        return {"max_completion_tokens": token_limit}
+    return {"max_tokens": token_limit}
+
+
+def _temperature_kw(model: str, temperature: float) -> Dict[str, float]:
+    """Return temperature only for models that accept custom values."""
+    model_name = model.lower()
+    if model_name.startswith("gpt-5") or model_name.startswith("o"):
+        return {}
+    return {"temperature": temperature}
 
 
 def _generate_cypher_with_llm(
@@ -694,6 +768,7 @@ def _generate_cypher_with_llm(
         "Use ONLY the graph schema provided: vertex labels (graph.vertices[].label), "
         "edges (graph.edges[].label, fromVertex, toVertex), and vertex attributes (oneToOne.attributes, oneToOne.id.fields with alias/field). "
         "Rules: No space after colon in node labels (e.g. (c:Customer) not (c: Customer)). "
+        "When returning a vertex id field from oneToOne.id.fields, use id(var) AS alias instead of var.alias. "
         "Use only MATCH, RETURN, WHERE, ORDER BY, LIMIT. Integer literals for whole numbers in WHERE. "
         "Always include LIMIT. For ordering by risk_rating (values may be high/med/low or HIGH/MEDIUM/LOW), "
         "use ORDER BY CASE toUpper(trim(toString(var.risk_rating))) WHEN 'HIGH' THEN 3 WHEN 'MEDIUM' THEN 2 WHEN 'MED' THEN 2 WHEN 'LOW' THEN 1 ELSE 0 END DESC. "
@@ -711,8 +786,8 @@ def _generate_cypher_with_llm(
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            temperature=0.1,
-            max_tokens=800,
+            **_temperature_kw(model, 0.1),
+            **_token_limit_kw(model, 800),
         )
         content = (response.choices[0].message.content or "").strip()
         cypher = _extract_cypher_from_llm_response(content)
@@ -764,8 +839,8 @@ def _generate_cypher_with_llm_retry(
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-            temperature=0.1,
-            max_tokens=800,
+            **_temperature_kw(model, 0.1),
+            **_token_limit_kw(model, 800),
         )
         content = (response.choices[0].message.content or "").strip()
         cypher = _extract_cypher_from_llm_response(content)
@@ -899,7 +974,7 @@ def nl_to_cypher(
         try:
             rule_analysis = analyze_natural_language(query, schema)
             rule_cypher = generate_cypher(rule_analysis, schema)
-            rule_cypher = _normalize_cypher(rule_cypher)
+            rule_cypher = _rewrite_return_id_fields(_normalize_cypher(rule_cypher), schema)
             rule_valid, _ = validate_cypher_full(rule_cypher, schema)
             if rule_valid:
                 return {
@@ -919,7 +994,7 @@ def nl_to_cypher(
             "source": "llm",
         }
 
-    cypher = _normalize_cypher(llm_cypher)
+    cypher = _rewrite_return_id_fields(_normalize_cypher(llm_cypher), schema)
     valid_full, validation_errors = validate_cypher_full(cypher, schema)
     if valid_full:
         return {
@@ -932,7 +1007,7 @@ def nl_to_cypher(
 
     retry_cypher = _generate_cypher_with_llm_retry(query, schema, validation_errors)
     if retry_cypher:
-        cypher = _normalize_cypher(retry_cypher)
+        cypher = _rewrite_return_id_fields(_normalize_cypher(retry_cypher), schema)
         valid_retry, retry_errors = validate_cypher_full(cypher, schema)
         if valid_retry:
             return {
@@ -948,7 +1023,7 @@ def nl_to_cypher(
     try:
         rule_analysis = analyze_natural_language(query, schema)
         rule_cypher = generate_cypher(rule_analysis, schema)
-        rule_cypher = _normalize_cypher(rule_cypher)
+        rule_cypher = _rewrite_return_id_fields(_normalize_cypher(rule_cypher), schema)
         rule_valid, rule_errors = validate_cypher_full(rule_cypher, schema)
         if rule_valid:
             return {

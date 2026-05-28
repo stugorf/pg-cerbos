@@ -6,7 +6,7 @@ from fastapi import FastAPI, Depends, HTTPException, status, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from db import SessionLocal, engine
 from models import Policy
 from auth_models import User, Role, Permission, Base
@@ -21,6 +21,8 @@ from auth_models import (
 )
 from query_models import Query, QueryColumn, QueryResult, QueryStat, QueryCreate, QueryResponse, QueryResultResponse
 from query_db import get_query_db, get_query_db_sync, init_query_database
+import requests
+from startup_initializer import ensure_iceberg_demo_data, get_startup_init_status
 try:
     from cerbos_client import get_cerbos_client
     CERBOS_CLIENT_AVAILABLE = True
@@ -95,15 +97,23 @@ except Exception as e:
 
 API = FastAPI(title="Policy Registry", version="0.1")
 
-origins = [os.getenv("CORS_ORIGINS", "*")]
+origins = [origin.strip() for origin in os.getenv("CORS_ORIGINS", "*").split(",") if origin.strip()]
 API.add_middleware(
     CORSMiddleware,
-    allow_origins=origins if isinstance(origins, str) else origins,
+    allow_origins=origins,
     allow_credentials=True, allow_methods=["*"], allow_headers=["*"]
 )
 
 # Security
 security = HTTPBearer()
+
+
+@API.on_event("startup")
+def initialize_demo_data_on_startup():
+    try:
+        ensure_iceberg_demo_data()
+    except Exception as exc:
+        logger.error("Startup demo data initialization failed: %s", exc, exc_info=True)
 
 def get_db():
     db = SessionLocal()
@@ -144,6 +154,155 @@ def get_current_admin_user(current_user: User = Depends(get_current_user), db: S
 @API.get("/health")
 def health():
     return {"ok": True}
+
+
+def _component(status_name: str, ok: bool, detail: str = ""):
+    return {
+        "status": status_name,
+        "ok": ok,
+        "detail": detail,
+    }
+
+
+def _check_policy_db():
+    try:
+        db = SessionLocal()
+        try:
+            db.execute(text("SELECT 1"))
+            user_count = db.execute(text("SELECT COUNT(*) FROM users")).scalar()
+            return _component("ready", True, f"{user_count} users")
+        finally:
+            db.close()
+    except Exception as exc:
+        return _component("error", False, str(exc))
+
+
+def _check_query_db():
+    try:
+        db = get_query_db_sync()
+        try:
+            db.execute(text("SELECT 1"))
+            return _component("ready", True, "query results database reachable")
+        finally:
+            db.close()
+    except Exception as exc:
+        return _component("error", False, str(exc))
+
+
+def _check_cerbos():
+    try:
+        cerbos_client = get_cerbos_client()
+        allowed, reason, _policy = cerbos_client.check_query_permission(
+            user_id="readiness",
+            user_email="readiness@pg-cerbos.local",
+            user_roles=["admin"],
+            method="POST",
+            path="/v1/statement",
+            query_body="SELECT 1 FROM postgres.public.person LIMIT 1",
+        )
+        if allowed:
+            return _component("ready", True, "Cerbos PDP authorization reachable")
+        return _component("error", False, reason or "readiness authorization denied")
+    except Exception as exc:
+        return _component("error", False, str(exc))
+
+
+def _check_trino():
+    try:
+        from trino_client import get_trino_client
+        query = "SELECT coordinator, state FROM system.runtime.nodes"
+        with get_trino_client().execute_query("readiness", "system", "runtime", query) as (
+            success,
+            data,
+            _columns,
+            error,
+        ):
+            if success:
+                active = [row for row in data if str(row[1]).lower() == "active"]
+                coordinators = [row for row in active if bool(row[0])]
+                workers = [row for row in active if not bool(row[0])]
+                if coordinators and workers:
+                    return _component(
+                        "ready",
+                        True,
+                        f"{len(coordinators)} coordinator, {len(workers)} worker(s) active",
+                    )
+                if coordinators:
+                    return _component(
+                        "warning",
+                        False,
+                        f"{len(coordinators)} coordinator active, no active workers",
+                    )
+                return _component("error", False, "no active Trino coordinator")
+            return _component("error", False, error or "Trino query failed")
+    except Exception as exc:
+        return _component("error", False, str(exc))
+
+
+def _check_iceberg():
+    init_status = get_startup_init_status()
+    if init_status.get("state") not in ("ready", "running"):
+        return _component(
+            init_status.get("state", "error"),
+            False,
+            init_status.get("error") or "startup initializer has not completed",
+        )
+
+    try:
+        from trino_client import get_trino_client
+        checks = [
+            "SELECT COUNT(*) FROM iceberg.sales.person",
+            "SELECT COUNT(*) FROM iceberg.demo.employee_performance",
+        ]
+        counts = []
+        for query in checks:
+            with get_trino_client().execute_query("readiness", "iceberg", "information_schema", query) as (
+                success,
+                data,
+                _columns,
+                error,
+            ):
+                if not success:
+                    return _component("error", False, error or "Iceberg table check failed")
+                counts.append(data[0][0] if data else 0)
+
+        return _component(
+            "ready",
+            True,
+            f"sales.person={counts[0]}, demo.employee_performance={counts[1]}",
+        )
+    except Exception as exc:
+        return _component("error", False, str(exc))
+
+
+def _check_puppygraph():
+    try:
+        response = requests.get("http://puppygraph:8081/", timeout=2)
+        if response.ok:
+            return _component("ready", True, "PuppyGraph reachable")
+        return _component("error", False, f"HTTP {response.status_code}")
+    except Exception as exc:
+        return _component("error", False, str(exc))
+
+
+@API.get("/readiness")
+def readiness():
+    components = {
+        "policy_db": _check_policy_db(),
+        "query_db": _check_query_db(),
+        "cerbos": _check_cerbos(),
+        "trino": _check_trino(),
+        "iceberg": _check_iceberg(),
+        "puppygraph": _check_puppygraph(),
+    }
+    ready = all(component["ok"] for component in components.values())
+    return {
+        "ok": ready,
+        "status": "ready" if ready else "degraded",
+        "startup_init": get_startup_init_status(),
+        "components": components,
+        "checked_at": datetime.utcnow().isoformat() + "Z",
+    }
 
 # Test endpoint to verify Cerbos routes are registered (no auth required for testing)
 print("DEBUG: Defining /cerbos/test endpoint...")

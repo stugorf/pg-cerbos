@@ -49,6 +49,27 @@ services:
       - ./scripts/init-minio.sh:/docker-entrypoint-initdb.d/init-minio.sh:ro
     networks: [trino-net]
 
+  minio-init:
+    image: quay.io/minio/mc
+    container_name: pg-cerbos-minio-init
+    depends_on:
+      - minio
+    environment:
+      MINIO_USER: ${MINIO_USER:-minio}
+      MINIO_PASS: ${MINIO_PASS:-minio123}
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        until mc alias set local http://minio:9000 "$$MINIO_USER" "$$MINIO_PASS"; do
+          sleep 2
+        done
+        mc mb -p local/warehouse
+        mc anonymous set download local/warehouse || true
+    networks: [trino-net]
+    restart: "no"
+
   nessie:
     image: ghcr.io/projectnessie/nessie:latest
     container_name: pg-cerbos-nessie
@@ -81,8 +102,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      minio:
-        condition: service_started
+      minio-init:
+        condition: service_completed_successfully
       nessie:
         condition: service_started
     networks: [trino-net]
@@ -155,7 +176,10 @@ services:
     container_name: pg-cerbos-policy-ui
     ports: ["8083:80"]
     environment:
-      API_BASE: http://localhost:8082
+      APP_VERSION: ${APP_VERSION:-1.0.10}
+      BUILD_ID: ${BUILD_ID:-}
+    depends_on:
+      - policy-registry-backend
     networks: [trino-net]
 
   # Cerbos Policy Decision Point

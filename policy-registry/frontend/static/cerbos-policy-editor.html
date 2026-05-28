@@ -157,7 +157,7 @@
                 border-top: 1px solid #e1e5e9;
             }
         </style>
-        <script>window.API_BASE = (new URL(document.location)).searchParams.get("api") || "http://localhost:8082";</script>
+        <script>window.API_BASE = ((new URL(document.location)).searchParams.get("api") || "/api").replace(/\/+$/, "");</script>
         <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
     </head>
     <body>

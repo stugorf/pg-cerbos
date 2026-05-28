@@ -18,8 +18,10 @@ from requests.auth import HTTPBasicAuth
 # Try to import Neo4j driver for Bolt protocol support
 try:
     from neo4j import GraphDatabase
+    from neo4j.graph import Node, Path, Relationship
     NEO4J_AVAILABLE = True
 except ImportError:
+    Node = Path = Relationship = None
     NEO4J_AVAILABLE = False
     logging.warning("Neo4j driver not available. Install with: pip install neo4j")
 
@@ -38,6 +40,34 @@ def _make_cypher_value_json_safe(value: Any) -> Any:
     """
     if value is None:
         return value
+    if Node is not None and isinstance(value, Node):
+        return {
+            "_type": "node",
+            "id": getattr(value, "element_id", None) or str(getattr(value, "id", "")),
+            "labels": sorted(list(value.labels)),
+            "properties": {k: _make_cypher_value_json_safe(v) for k, v in dict(value).items()},
+        }
+    if Relationship is not None and isinstance(value, Relationship):
+        start_node = getattr(value, "start_node", None)
+        end_node = getattr(value, "end_node", None)
+        return {
+            "_type": "relationship",
+            "id": getattr(value, "element_id", None) or str(getattr(value, "id", "")),
+            "type": value.type,
+            "start": getattr(start_node, "element_id", None) or (str(getattr(start_node, "id", "")) if start_node else None),
+            "end": getattr(end_node, "element_id", None) or (str(getattr(end_node, "id", "")) if end_node else None),
+            "properties": {k: _make_cypher_value_json_safe(v) for k, v in dict(value).items()},
+        }
+    if Path is not None and isinstance(value, Path):
+        return {
+            "_type": "path",
+            "nodes": [_make_cypher_value_json_safe(node) for node in value.nodes],
+            "relationships": [_make_cypher_value_json_safe(rel) for rel in value.relationships],
+        }
+    if isinstance(value, dict):
+        return {str(k): _make_cypher_value_json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_make_cypher_value_json_safe(item) for item in value]
     if NEO4J_TIME_AVAILABLE:
         mod = neo4j.time
         temporal_types = tuple(

@@ -25,6 +25,7 @@ from nl_to_cypher import (
     validate_cypher_full,
     nl_to_cypher,
     _normalize_cypher,
+    _rewrite_return_id_fields,
     _redact_schema_for_llm,
 )
 
@@ -274,3 +275,9 @@ class TestNormalizeCypher:
     def test_normalize_no_change_when_correct(self):
         q = "MATCH (c:Customer) RETURN c LIMIT 5"
         assert _normalize_cypher(q) == q
+
+    def test_rewrite_vertex_id_return_fields(self, schema):
+        q = "MATCH (t:Transaction) RETURN t.txn_id, t.amount LIMIT 5"
+        rewritten = _rewrite_return_id_fields(q, schema)
+        assert "id(t) AS txn_id" in rewritten
+        assert "t.amount" in rewritten

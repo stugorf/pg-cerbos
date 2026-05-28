@@ -33,10 +33,12 @@ def _llm_client() -> Optional[Any]:
     api_key = os.environ.get("OPENAI_API_KEY", "").strip()
     if not api_key or not OPENAI_AVAILABLE:
         return None
-    base_url = os.environ.get("OPENAI_BASE_URL")
+    base_url = os.environ.get("OPENAI_BASE_URL", "").strip()
     client_kw: Dict[str, Any] = {"api_key": api_key}
     if base_url:
         client_kw["base_url"] = base_url
+    else:
+        client_kw["base_url"] = "https://api.openai.com/v1"
     return openai.OpenAI(**client_kw)
 
 
@@ -48,6 +50,22 @@ def _model_for_chart() -> str:
         or os.environ.get("OPENAI_MODEL", "").strip()
         or "gpt-4o-mini"
     )
+
+
+def _token_limit_kw(model: str, token_limit: int) -> Dict[str, int]:
+    """Return the token limit parameter accepted by the configured model family."""
+    model_name = model.lower()
+    if model_name.startswith("gpt-5") or model_name.startswith("o"):
+        return {"max_completion_tokens": token_limit}
+    return {"max_tokens": token_limit}
+
+
+def _temperature_kw(model: str, temperature: float) -> Dict[str, float]:
+    """Return temperature only for models that accept custom values."""
+    model_name = model.lower()
+    if model_name.startswith("gpt-5") or model_name.startswith("o"):
+        return {}
+    return {"temperature": temperature}
 
 
 def _normalize_columns(columns: Any) -> List[str]:
@@ -290,14 +308,15 @@ def suggest_chart_and_echarts(
         "Respond with a single JSON object only (chart_type, chart_subtype, echarts_option)."
     )
     try:
+        model = _model_for_chart()
         response = client.chat.completions.create(
-            model=_model_for_chart(),
+            model=model,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
-            temperature=0.1,
-            max_tokens=4000,
+            **_temperature_kw(model, 0.1),
+            **_token_limit_kw(model, 4000),
         )
         content = (response.choices[0].message.content or "").strip()
         # Strip markdown code block if present (e.g. ```json ... ``` or ``` ... ```)
