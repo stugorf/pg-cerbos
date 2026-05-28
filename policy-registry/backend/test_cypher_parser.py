@@ -224,6 +224,12 @@ class TestResourceAttributes:
         query = "MATCH (c:Customer {pep_flag: true}) RETURN c"
         attrs = extract_resource_attributes(query)
         assert attrs.get("pep_flag") is True
+
+    def test_quoted_node_property_with_spaces_extraction(self):
+        query = "MATCH (c:Customer {team: 'Team A', region: 'North America'}) RETURN c"
+        attrs = extract_resource_attributes(query)
+        assert attrs.get("customer_team") == "Team A"
+        assert attrs.get("customer_region") == "North America"
     
     def test_severity_extraction(self):
         query = "MATCH (a:Alert) WHERE a.severity = 'high' RETURN a"

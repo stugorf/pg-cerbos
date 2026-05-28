@@ -157,6 +157,12 @@ services:
       OPENAI_MODEL_CYPHER: ${OPENAI_MODEL_CYPHER:-}
       OPENAI_MODEL_CHART: ${OPENAI_MODEL_CHART:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-}
+      GRAPH_QUERY_ANALYZER_URL: http://graph-query-analyzer:8080
+      GRAPH_ENGINE: ${GRAPH_ENGINE:-puppygraph}
+      NEO4J_URI: ${NEO4J_URI:-bolt://neo4j:7687}
+      NEO4J_USER: ${NEO4J_USER:-neo4j}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:-neo4j-password}
+      NEO4J_DATABASE: ${NEO4J_DATABASE:-}
     ports: ["8082:8080"]
     volumes:
       - ./cerbos/policies:/policies:ro
@@ -169,6 +175,16 @@ services:
         condition: service_healthy
       cerbos:
         condition: service_started
+      graph-query-analyzer:
+        condition: service_started
+    networks: [trino-net]
+
+  graph-query-analyzer:
+    build: ./graph-query-analyzer
+    container_name: pg-cerbos-graph-query-analyzer
+    environment:
+      PORT: 8080
+    ports: ["8084:8080"]
     networks: [trino-net]
 
   policy-registry-frontend:

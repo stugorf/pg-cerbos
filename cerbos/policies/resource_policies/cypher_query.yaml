@@ -34,6 +34,19 @@ resourcePolicy:
     # ============================================================================
     # DENY RULES (evaluated first, before ALLOW rules)
     # ============================================================================
+
+    # ============================================================================
+    # RULE 0: DENY writes and mutations through graph query endpoints
+    # Reasoning: The current product surface authorizes read/query workflows only.
+    # Parser/analyzer output must explicitly mark write operations so they fail closed.
+    # ============================================================================
+    - actions: ["execute"]
+      effect: EFFECT_DENY
+      roles: ["admin", "aml_manager", "aml_manager_full", "aml_analyst", "aml_analyst_junior", "aml_analyst_senior"]
+      condition:
+        match:
+          expr: |
+            R.attr.has_write_operation == true || R.attr.is_read_only == false
     
     # ============================================================================
     # RULE 4a: DENY Case and Alert nodes for junior analysts
