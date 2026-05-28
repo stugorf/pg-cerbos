@@ -910,7 +910,6 @@ def natural_language_graph_query(
         raise HTTPException(status_code=403, detail=reason or "Not authorized to execute this graph query.")
 
     try:
-        import time
         start = time.time()
         pg = get_puppygraph_client()
         data = pg.execute_cypher(query)
