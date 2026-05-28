@@ -24,6 +24,7 @@ from nl_to_cypher import (
     validate_cypher_against_schema,
     validate_cypher_full,
     nl_to_cypher,
+    nl_to_graph_query,
     _normalize_cypher,
     _rewrite_return_id_fields,
     _redact_schema_for_llm,
@@ -281,3 +282,21 @@ class TestNormalizeCypher:
         rewritten = _rewrite_return_id_fields(q, schema)
         assert "id(t) AS txn_id" in rewritten
         assert "t.amount" in rewritten
+
+
+class TestNLToGraphQuery:
+    def test_generates_gremlin_for_selected_route(self, schema):
+        result = nl_to_graph_query("Customers who own accounts", schema, "gremlin")
+
+        assert result["valid"] is True
+        assert result["query_type"] == "gremlin"
+        assert result["query"].startswith("g.V()")
+        assert "OWNS" in result["query"]
+
+    def test_generates_sparql_for_selected_route(self, schema):
+        result = nl_to_graph_query("Customers who own accounts", schema, "sparql")
+
+        assert result["valid"] is True
+        assert result["query_type"] == "sparql"
+        assert "PREFIX aml:" in result["query"]
+        assert "aml:OWNS" in result["query"]

@@ -1,18 +1,18 @@
 # Natural Language Graph Query (NLI)
 
-The Graph Query UI supports natural language questions that are converted to Cypher, validated against the PuppyGraph schema and execution engine, and executed.
+The Graph Query UI supports natural language questions that are converted to the selected graph query language, validated against that route's schema and execution engine, authorized by Cerbos, and executed.
 
 ## Workflow (LLM with schema JSON, then validate and retry)
 
-1. **Schema** – The backend fetches the current graph schema from PuppyGraph (`/schemajson`).
+1. **Schema** – The backend fetches the current graph schema for the selected route: PuppyGraph for `cypher`/`gremlin`, Neo4j for `gql`, and Fuseki for `sparql`.
 2. **Credential redaction** – Before sending the schema to the LLM, credentials are redacted (e.g. `password`, `username`, `jdbcUri`, `secret`, `api_key`, `token`). Values are replaced with `[REDACTED]`.
-3. **Cypher generation (LLM)** – When `OPENAI_API_KEY` is set, the **LLM** receives the **redacted schema JSON** and the **user's question**. It generates a single openCypher (v9) statement. No rule-based extraction is used for the LLM path.
-4. **Validation** – Every generated Cypher (from LLM or rules) is validated so it is fully supported by the schema and PuppyGraph:
+3. **Query generation** – Cypher and GQL use the existing Cypher-compatible generator. Gremlin and SPARQL use schema-driven rule-based generation for the local demo route.
+4. **Validation** – Every generated query is validated so it is supported by the selected schema and graph backend:
    Labels, relationships, and property references are checked; if invalid, the LLM is retried once with the validation errors.
 5. **LLM retry** – (Covered in step 4: one retry with validation errors.)
 6. **Rule-based fallback** – If the LLM is unavailable or still invalid after retry, **rule-based** analysis and Cypher generation is used.
-7. **Optional PuppyGraph dry run** – The API accepts `validate_with_puppygraph: true`; when set, execution errors from PuppyGraph are returned as validation errors.
-8. **Execution** – If the user chose “Ask & Execute”, the query is authorized by Cerbos and run on PuppyGraph.
+7. **Optional backend dry run** – The API accepts `validate_with_puppygraph: true`; when set, execution errors from the selected graph backend are returned as validation errors.
+8. **Execution** – If the user chose “Ask & Execute”, the query is authorized by Cerbos and run on the selected backend.
 
 ## Optional LLM (OpenAI)
 
@@ -46,7 +46,7 @@ OPENAI_API_KEY=sk-...
 - **Redaction**: Fields such as `password`, `username`, `jdbcUri`, `secret`, `api_key`, and `token` in the schema are replaced with `[REDACTED]` before the schema is sent to the LLM.
 - **Validation then retry**: Generated Cypher is validated (labels, relationships, properties). If invalid, the LLM is called once more with the validation errors and the same schema + question.
 - **Fallback**: If the LLM is unavailable or still invalid after retry, rule-based generation runs. The same validations apply to rule-based Cypher.
-- **PuppyGraph compatibility**: Use `validate_with_puppygraph: true` in the natural-language request body to run the query against PuppyGraph and surface execution errors as validation errors.
+- **Backend compatibility**: Use `validate_with_puppygraph: true` in the natural-language request body to run the query against the selected backend and surface execution errors as validation errors.
 
 ## Charts (Apache ECharts)
 
@@ -67,7 +67,7 @@ The LLM receives the query (or natural language question), result columns, and a
 
 ## Example complex queries
 
-You can try these in the **Graph Query** tab (“Or ask in natural language”). The system converts them to Cypher using the current PuppyGraph schema (entities, relationships, and numeric filters are schema-driven). Run `just nl-queries` to see rule-based output for these against the AML schema.
+You can try these in the **Graph Query** tab (“Or ask in natural language”). The system converts them to the selected graph query language using the selected backend schema (entities, relationships, and numeric filters are schema-driven). Run `just nl-queries` to see rule-based Cypher output for these against the AML schema.
 
 ### Single-entity and filters
 

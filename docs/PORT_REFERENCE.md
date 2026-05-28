@@ -12,6 +12,13 @@
 | **Trino Coordinator** | 8080 | 8080 | Trino UI & direct access |
 | **Policy Registry Backend** | 8080 | 8082 | API server |
 | **Policy Registry Frontend** | 80 | 8083 | Web UI |
+| **Graph Query Analyzer** | 8080 | 8084 | Graph query analyzer sidecar |
+| **PuppyGraph UI** | 8081 | 8081 | PuppyGraph web UI |
+| **PuppyGraph Gremlin** | 8182 | 8182 | PuppyGraph Gremlin endpoint |
+| **PuppyGraph Bolt** | 7687 | 7687 | PuppyGraph openCypher/Bolt endpoint |
+| **Neo4j Browser** | 7474 | 7474 | Neo4j demo UI |
+| **Neo4j Bolt** | 7687 | 7688 | Neo4j Bolt endpoint |
+| **Fuseki** | 3030 | 3030 | Apache Jena Fuseki SPARQL endpoint |
 | **OPA** | 8181 | 8181 | Policy Decision Point |
 | **OPA Diagnostics** | 8282 | 8282 | OPA diagnostics |
 | **Cerbos** | 3593 | 3593 | Cerbos PDP (HTTP/gRPC) |

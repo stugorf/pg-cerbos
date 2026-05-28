@@ -654,10 +654,39 @@ body {
     font-size: 12px;
     font-weight: 700;
     cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
 }
 
 .readiness-refresh:hover {
     background: #edf2f7;
+}
+
+.readiness-refresh:disabled {
+    cursor: wait;
+    opacity: 0.85;
+}
+
+.readiness-refresh-icon {
+    display: inline-block;
+    line-height: 1;
+    transform-origin: center;
+}
+
+.readiness-refresh.is-refreshing {
+    background: #eef6ff;
+    border-color: #8bb8f8;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
+.readiness-refresh.is-refreshing .readiness-refresh-icon {
+    animation: readiness-spin 0.75s linear infinite;
+}
+
+.readiness-strip.readiness-just-updated {
+    animation: readiness-strip-flash 0.9s ease-out;
 }
 
 .readiness-grid {
@@ -681,6 +710,38 @@ body {
     font-size: 12px;
     font-weight: 600;
     white-space: nowrap;
+}
+
+.readiness-grid.is-refreshing .readiness-item {
+    animation: readiness-chip-pulse 0.9s ease-in-out infinite;
+}
+
+.readiness-grid.is-refreshing .readiness-item:nth-child(2) {
+    animation-delay: 0.05s;
+}
+
+.readiness-grid.is-refreshing .readiness-item:nth-child(3) {
+    animation-delay: 0.1s;
+}
+
+.readiness-grid.is-refreshing .readiness-item:nth-child(4) {
+    animation-delay: 0.15s;
+}
+
+.readiness-grid.is-refreshing .readiness-item:nth-child(5) {
+    animation-delay: 0.2s;
+}
+
+.readiness-grid.is-refreshing .readiness-item:nth-child(6) {
+    animation-delay: 0.25s;
+}
+
+.readiness-grid.is-refreshing .readiness-item:nth-child(7) {
+    animation-delay: 0.3s;
+}
+
+.readiness-grid.is-refreshing .readiness-item:nth-child(8) {
+    animation-delay: 0.35s;
 }
 
 .readiness-dot {
@@ -721,6 +782,32 @@ body {
 
 .readiness-item.status-error .readiness-dot {
     background: #d92d20;
+}
+
+@keyframes readiness-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes readiness-chip-pulse {
+    0%, 100% {
+        transform: translateY(0);
+        filter: brightness(1);
+    }
+    50% {
+        transform: translateY(-1px);
+        filter: brightness(1.04);
+    }
+}
+
+@keyframes readiness-strip-flash {
+    0% {
+        background: #eaf7ef;
+    }
+    100% {
+        background: #ffffff;
+    }
 }
 
 .user-info {
