@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>PG CERBOS - Authentication</title>
-    <link rel="stylesheet" href="auth-styles.css?v=1.0.7">
+    <link rel="stylesheet" href="auth-styles.css?v=1.0.8">
     <script>window.API_BASE = (new URL(document.location)).searchParams.get("api") || "http://localhost:8082";</script>
     <!-- ECharts must load before Monaco's AMD loader (vs/loader.js) to avoid "one anonymous define per script" error -->
     <script src="/echarts.min.js"></script>
@@ -384,7 +384,7 @@
         <!-- Version Footer -->
         <div class="version-footer">
             <div class="footer-content">
-                <span class="footer-version" id="footer-version">PG CERBOS v1.0.7</span>
+                <span class="footer-version" id="footer-version">PG CERBOS v1.0.8</span>
                 <span class="footer-build" id="footer-build">Build 20260126_1200</span>
                 <span class="footer-timestamp" id="footer-timestamp"></span>
             </div>
@@ -465,7 +465,7 @@
         const API_BASE = (new URL(document.location)).searchParams.get("api") || "http://localhost:8082";
         const ENVOY_URL = "http://localhost:8081"; // Legacy - not used anymore
         const JSON_API_URL = "http://localhost:8082"; // New JSON API endpoint
-        const VERSION = "1.0.7"; // Cache busting version - Added query sequence panels
+        const VERSION = "1.0.8"; // Cache busting version - Footer frame layout
         const TIMESTAMP = Date.now(); // Force cache refresh
         const BUILD_ID = "20260126_1200"; // Build date: Jan 26, 2026 - Cerbos authorization logging feature
             
@@ -738,6 +738,28 @@ LIMIT 50`
 
         function renderSqlSequence({ startTime, endTime, status, rowCount, detail, metrics }) {
             const durationMs = endTime - startTime;
+            const validationFailed = status === 'FAILED' && !metrics && /validation failed|empty sql/i.test(detail || '');
+            if (validationFailed) {
+                renderAgentSequence('sql', [
+                    {
+                        name: 'query.validated',
+                        status: 'ERROR',
+                        start: startTime,
+                        end: endTime,
+                        durationMs,
+                        detail: 'empty SQL'
+                    },
+                    {
+                        name: 'query.metrics',
+                        status,
+                        start: startTime,
+                        end: endTime,
+                        durationMs,
+                        detail: detail || 'Overall: validation failed.'
+                    }
+                ]);
+                return;
+            }
             const deniedByCerbos = isCerbosDenied(detail);
             const cerbosMs = metrics?.cerbos_ms ?? 0;
             const cerbosEnd = startTime + cerbosMs;
@@ -781,6 +803,28 @@ LIMIT 50`
 
         function renderGraphSequence({ startTime, endTime, status, rowCount, queryType, detail, backendMs, metrics }) {
             const durationMs = endTime - startTime;
+            const validationFailed = status === 'FAILED' && !metrics && /validation failed|empty graph query/i.test(detail || '');
+            if (validationFailed) {
+                renderAgentSequence('graph', [
+                    {
+                        name: 'query.validated',
+                        status: 'ERROR',
+                        start: startTime,
+                        end: endTime,
+                        durationMs,
+                        detail: `empty ${queryType} query`
+                    },
+                    {
+                        name: 'query.metrics',
+                        status,
+                        start: startTime,
+                        end: endTime,
+                        durationMs,
+                        detail: detail || 'Overall: validation failed.'
+                    }
+                ]);
+                return;
+            }
             const deniedByCerbos = isCerbosDenied(detail);
             const cerbosMs = metrics?.cerbos_ms ?? 0;
             const cerbosEnd = startTime + cerbosMs;
