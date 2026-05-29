@@ -2,7 +2,7 @@ import io, os, tarfile, time, threading, yaml, json
 import logging
 from datetime import datetime
 from typing import List, Optional
-from fastapi import FastAPI, Depends, HTTPException, status, Response
+from fastapi import FastAPI, Depends, HTTPException, status, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
@@ -135,8 +135,12 @@ def get_db():
     finally:
         db.close()
 
-def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
-    """Get the current authenticated user."""
+def get_current_user(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: Session = Depends(get_db),
+):
+    """Get the effective authenticated user, optionally impersonated by an admin."""
     token = credentials.credentials
     token_data = verify_token(token)
     if token_data is None:
@@ -152,16 +156,34 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             detail="User not found",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    impersonate_user_id = request.headers.get("X-Impersonate-User-Id")
+    if impersonate_user_id:
+        if not is_admin(db, user.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only admins can select an effective policy user"
+            )
+        try:
+            target_user_id = int(impersonate_user_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid effective user id")
+        target_user = db.query(User).filter(User.id == target_user_id).first()
+        if target_user is None or not target_user.is_active:
+            raise HTTPException(status_code=404, detail="Effective user not found")
+        target_user.authenticated_user = user
+        target_user.impersonated_by_user_id = user.id
+        return target_user
     return user
 
 def get_current_admin_user(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """Get the current user and verify they have admin role."""
-    if not is_admin(db, current_user.id):
+    authenticated_user = getattr(current_user, "authenticated_user", current_user)
+    if not is_admin(db, authenticated_user.id):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required"
         )
-    return current_user
+    return authenticated_user
 
 # Health check
 @API.get("/health")

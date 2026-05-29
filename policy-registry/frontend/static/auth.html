@@ -72,6 +72,10 @@
                 <h1>PG CERBOS Dashboard</h1>
                 <div class="user-info">
                     <span id="user-email"></span>
+                    <label id="policy-user-control" class="policy-user-control" for="policy-user-select" style="display: none;">
+                        <span>Policy user</span>
+                        <select id="policy-user-select"></select>
+                    </label>
                     <span id="user-roles"></span>
                     <button id="logout-btn" class="btn btn-secondary">Logout</button>
                 </div>
@@ -545,6 +549,9 @@
                         <pre id="cerbos-log-raw-content" class="log-detail-pre"></pre>
                     </section>
                 </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closeCerbosLogDetailModal()">Close</button>
+                </div>
             </div>
         </div>
 
@@ -567,8 +574,35 @@
             console.log('Cache busting timestamp:', TIMESTAMP);
         let currentUser = null;
         let authToken = null;
+        let selectablePolicyUsers = [];
+        let selectedPolicyUserId = localStorage.getItem('selectedPolicyUserId') || '';
         let queryHistory = [];
         let savedQueries = [];
+        const nativeFetch = window.fetch.bind(window);
+        window.fetch = (input, init = {}) => {
+            const url = typeof input === 'string' ? input : (input && input.url) || '';
+            const requestHeaders = input instanceof Request ? input.headers : undefined;
+            const headers = new Headers(init.headers || requestHeaders || {});
+            if (shouldAttachEffectiveUserHeader(url)) {
+                headers.set('X-Impersonate-User-Id', selectedPolicyUserId);
+            }
+            return nativeFetch(input, { ...init, headers });
+        };
+
+        function shouldAttachEffectiveUserHeader(url) {
+            if (!currentUser || !selectedPolicyUserId || String(selectedPolicyUserId) === String(currentUser.id)) {
+                return false;
+            }
+            if (!url) return false;
+            if (url.startsWith(API_BASE) || url.startsWith('/api')) return true;
+            try {
+                const parsed = new URL(url, window.location.origin);
+                return parsed.origin === window.location.origin && parsed.pathname.startsWith(API_BASE);
+            } catch (_) {
+                return false;
+            }
+        }
+
         const graphSavedQueries = [
             {
                 name: 'High-value transactions by customer',
@@ -857,7 +891,10 @@ LIMIT 25`
         function handleLogout() {
             authToken = null;
             currentUser = null;
+            selectablePolicyUsers = [];
+            selectedPolicyUserId = '';
             localStorage.removeItem('authToken');
+            localStorage.removeItem('selectedPolicyUserId');
             showLogin();
         }
 
@@ -871,8 +908,10 @@ LIMIT 25`
             console.log('showDashboard called');
             loginSection.style.display = 'none';
             dashboardSection.style.display = 'grid';
-            userEmail.textContent = currentUser.email;
-            userRoles.textContent = `Roles: ${currentUser.roles.join(', ')}`;
+            if (!selectedPolicyUserId) {
+                selectedPolicyUserId = String(currentUser.id);
+            }
+            updatePolicyUserHeader();
             
             console.log('Initializing dashboard components...');
             // Initialize dashboard components
@@ -884,9 +923,83 @@ LIMIT 25`
                 console.log('User is admin, initializing admin features...');
                 initializeAdminFeatures();
             }
+            initializePolicyUserSelector();
             console.log('Dashboard initialization complete');
             
 
+        }
+
+        async function initializePolicyUserSelector() {
+            const control = document.getElementById('policy-user-control');
+            const select = document.getElementById('policy-user-select');
+            if (!control || !select || !currentUser) return;
+
+            if (!currentUser.roles.includes('admin')) {
+                selectablePolicyUsers = [currentUser];
+                selectedPolicyUserId = String(currentUser.id);
+                localStorage.removeItem('selectedPolicyUserId');
+                control.style.display = 'none';
+                updatePolicyUserHeader();
+                return;
+            }
+
+            control.style.display = 'inline-flex';
+            select.innerHTML = '<option>Loading users...</option>';
+            try {
+                const response = await fetch(`${API_BASE}/users`, {
+                    headers: {
+                        'Authorization': `Bearer ${authToken}`
+                    }
+                });
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                selectablePolicyUsers = await response.json();
+                if (!selectablePolicyUsers.some((user) => String(user.id) === String(selectedPolicyUserId))) {
+                    selectedPolicyUserId = String(currentUser.id);
+                }
+                renderPolicyUserSelector();
+                updatePolicyUserHeader();
+            } catch (error) {
+                console.error('Error loading policy users:', error);
+                selectablePolicyUsers = [currentUser];
+                selectedPolicyUserId = String(currentUser.id);
+                renderPolicyUserSelector();
+                updatePolicyUserHeader();
+            }
+        }
+
+        function renderPolicyUserSelector() {
+            const select = document.getElementById('policy-user-select');
+            if (!select) return;
+            select.innerHTML = selectablePolicyUsers.map((user) => {
+                const roles = (user.roles || []).join(', ');
+                const label = `${user.email} (${roles || 'no roles'})`;
+                return `<option value="${user.id}">${escapeHtml(label)}</option>`;
+            }).join('');
+            select.value = selectedPolicyUserId;
+            select.onchange = () => {
+                selectedPolicyUserId = select.value;
+                localStorage.setItem('selectedPolicyUserId', selectedPolicyUserId);
+                updatePolicyUserHeader();
+                resetCurrentGraphExecutionState?.('Charts will refresh using the selected policy user.');
+                document.getElementById('query-output')?.replaceChildren();
+                document.getElementById('graph-query-output')?.replaceChildren();
+            };
+        }
+
+        function getSelectedPolicyUser() {
+            return selectablePolicyUsers.find((user) => String(user.id) === String(selectedPolicyUserId)) || currentUser;
+        }
+
+        function updatePolicyUserHeader() {
+            if (!currentUser) return;
+            const effectiveUser = getSelectedPolicyUser();
+            const isImpersonating = effectiveUser && String(effectiveUser.id) !== String(currentUser.id);
+            userEmail.textContent = isImpersonating
+                ? `Logged in: ${currentUser.email}`
+                : currentUser.email;
+            userRoles.textContent = effectiveUser
+                ? `Effective roles: ${(effectiveUser.roles || []).join(', ')}`
+                : `Roles: ${currentUser.roles.join(', ')}`;
         }
         
 
