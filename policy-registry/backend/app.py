@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import List, Optional
 from fastapi import FastAPI, Depends, HTTPException, status, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from sqlalchemy import select, text, update
@@ -970,6 +971,8 @@ def natural_language_graph_query(
             "analysis": result.get("analysis", {}),
             "valid": False,
             "validation_errors": result.get("validation_errors", []),
+            "generation_source": result.get("source"),
+            "generation_attempts": result.get("attempts", []),
             "executed": False,
             "sequence_metrics": {
                 "schema_ms": schema_ms,
@@ -995,6 +998,8 @@ def natural_language_graph_query(
                 "analysis": result.get("analysis", {}),
                 "valid": False,
                 "validation_errors": result.get("validation_errors", []) + [f"Graph engine execution: {exec_err}"],
+                "generation_source": result.get("source"),
+                "generation_attempts": result.get("attempts", []),
                 "executed": False,
                 "sequence_metrics": {
                     "schema_ms": schema_ms,
@@ -1013,6 +1018,8 @@ def natural_language_graph_query(
                 "analysis": result.get("analysis", {}),
                 "valid": False,
                 "validation_errors": result.get("validation_errors", []) + [f"Graph engine execution: {exec_err}"],
+                "generation_source": result.get("source"),
+                "generation_attempts": result.get("attempts", []),
                 "executed": False,
                 "sequence_metrics": {
                     "schema_ms": schema_ms,
@@ -1030,6 +1037,8 @@ def natural_language_graph_query(
             "analysis": result.get("analysis", {}),
             "valid": True,
             "validation_errors": [],
+            "generation_source": result.get("source"),
+            "generation_attempts": result.get("attempts", []),
             "executed": False,
             "sequence_metrics": {
                 "schema_ms": schema_ms,
@@ -1084,10 +1093,12 @@ def natural_language_graph_query(
     if not allowed:
         raise HTTPException(status_code=403, detail=reason or "Not authorized to execute this graph query.")
 
+    engine_start = time.time()
+    elapsed_ms = 0
     try:
-        start = time.time()
+        engine_start = time.time()
         data = graph_engine.execute(query_type, query)
-        elapsed_ms = (time.time() - start) * 1000
+        elapsed_ms = (time.time() - engine_start) * 1000
         total_backend_ms = (time.time() - request_start) * 1000
 
         # Optional: suggest chart type and ECharts option via LLM (NL path: use user question as context)
@@ -1112,6 +1123,8 @@ def natural_language_graph_query(
             "analysis": result.get("analysis", {}),
             "valid": True,
             "validation_errors": [],
+            "generation_source": result.get("source"),
+            "generation_attempts": result.get("attempts", []),
             "executed": True,
             "data": data,
             "execution_time_ms": elapsed_ms,
@@ -1128,10 +1141,58 @@ def natural_language_graph_query(
             "echarts_option": chart_info.get("echarts_option"),
         }
     except GraphEngineExecutionError as e:
-        raise HTTPException(status_code=e.status_code, detail=str(e))
+        elapsed_ms = (time.time() - engine_start) * 1000
+        return JSONResponse(
+            status_code=e.status_code,
+            content={
+                "success": False,
+                "detail": str(e),
+                "query": query,
+                "query_type": query_type,
+                "route": get_graph_route(query_type),
+                "analysis": result.get("analysis", {}),
+                "valid": True,
+                "validation_errors": [],
+                "generation_source": result.get("source"),
+                "generation_attempts": result.get("attempts", []),
+                "executed": True,
+                "sequence_metrics": {
+                    "schema_ms": schema_ms,
+                    "model_ms": model_ms,
+                    "analysis_ms": analysis_ms,
+                    "cerbos_ms": cerbos_ms,
+                    "engine_ms": elapsed_ms,
+                    "backend_ms": (time.time() - request_start) * 1000,
+                },
+            },
+        )
     except Exception as e:
         logger.error(f"NL graph query execution failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Query execution failed: {str(e)}")
+        elapsed_ms = (time.time() - engine_start) * 1000
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "detail": f"Query execution failed: {str(e)}",
+                "query": query,
+                "query_type": query_type,
+                "route": get_graph_route(query_type),
+                "analysis": result.get("analysis", {}),
+                "valid": True,
+                "validation_errors": [],
+                "generation_source": result.get("source"),
+                "generation_attempts": result.get("attempts", []),
+                "executed": True,
+                "sequence_metrics": {
+                    "schema_ms": schema_ms,
+                    "model_ms": model_ms,
+                    "analysis_ms": analysis_ms,
+                    "cerbos_ms": cerbos_ms,
+                    "engine_ms": elapsed_ms,
+                    "backend_ms": (time.time() - request_start) * 1000,
+                },
+            },
+        )
 
 
 # Graph Query endpoint: Execute graph queries with Cerbos authorization
@@ -1222,11 +1283,13 @@ def execute_graph_query(
         raise HTTPException(status_code=403, detail=reason or "Not authorized to execute graph queries")
     
     # Execute graph query via the configured graph engine adapter
+    engine_start = time.time()
+    execution_time = 0
     try:
-        start_time = time.time()
+        engine_start = time.time()
         result = graph_engine.execute(query_type, query)
         
-        execution_time = (time.time() - start_time) * 1000
+        execution_time = (time.time() - engine_start) * 1000
         total_backend_ms = (time.time() - request_start) * 1000
 
         # Optional: suggest chart type and ECharts option via LLM.
@@ -1262,12 +1325,46 @@ def execute_graph_query(
             "echarts_option": chart_info.get("echarts_option"),
         }
     except GraphEngineExecutionError as e:
-        raise HTTPException(status_code=e.status_code, detail=str(e))
+        execution_time = (time.time() - engine_start) * 1000
+        return JSONResponse(
+            status_code=e.status_code,
+            content={
+                "success": False,
+                "detail": str(e),
+                "query": query,
+                "query_type": query_type,
+                "route": get_graph_route(query_type),
+                "sequence_metrics": {
+                    "schema_ms": schema_ms,
+                    "analysis_ms": analysis_ms,
+                    "cerbos_ms": cerbos_ms,
+                    "engine_ms": execution_time,
+                    "backend_ms": (time.time() - request_start) * 1000,
+                },
+            },
+        )
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Graph query failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Graph query failed: {str(e)}")
+        execution_time = (time.time() - engine_start) * 1000
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "detail": f"Graph query failed: {str(e)}",
+                "query": query,
+                "query_type": query_type,
+                "route": get_graph_route(query_type),
+                "sequence_metrics": {
+                    "schema_ms": schema_ms,
+                    "analysis_ms": analysis_ms,
+                    "cerbos_ms": cerbos_ms,
+                    "engine_ms": execution_time,
+                    "backend_ms": (time.time() - request_start) * 1000,
+                },
+            },
+        )
 
 # SQL Query endpoint: Execute queries with Cerbos authorization
 @API.post("/query")

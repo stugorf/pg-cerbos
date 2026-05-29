@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import re
+import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
@@ -1002,6 +1003,7 @@ def _generate_graph_query_with_llm_retries(
     total_attempts = 1 + max(0, min(max_retries, MAX_LLM_GRAPH_QUERY_RETRIES))
 
     for attempt_number in range(1, total_attempts + 1):
+        attempt_start = time.time()
         generated = _request_graph_query_from_llm(
             language=language,
             natural_language_query=query_text,
@@ -1010,12 +1012,19 @@ def _generate_graph_query_with_llm_retries(
             validation_errors=validation_errors,
             review=review,
         )
+        attempt_ms = (time.time() - attempt_start) * 1000
         if language in {"cypher", "gql"} and generated:
             generated = _rewrite_return_id_fields(_normalize_cypher(generated), schema)
 
         if not generated:
             validation_errors = ["LLM did not return a graph query."]
-            attempts.append({"attempt": attempt_number, "query": "", "valid": False, "validation_errors": validation_errors})
+            attempts.append({
+                "attempt": attempt_number,
+                "query": "",
+                "valid": False,
+                "validation_errors": validation_errors,
+                "duration_ms": attempt_ms,
+            })
         else:
             valid, validation_errors = _validate_generated_graph_query(language, generated, schema)
             attempts.append({
@@ -1023,6 +1032,7 @@ def _generate_graph_query_with_llm_retries(
                 "query": generated,
                 "valid": valid,
                 "validation_errors": validation_errors,
+                "duration_ms": attempt_ms,
             })
             if valid:
                 source = "llm" if attempt_number == 1 else f"llm_retry_{attempt_number - 1}"
@@ -1039,6 +1049,7 @@ def _generate_graph_query_with_llm_retries(
 
         previous_query = generated or previous_query
         if attempt_number < total_attempts:
+            review_start = time.time()
             review = _review_generated_query_with_llm(
                 language=language,
                 natural_language_query=query_text,
@@ -1046,6 +1057,9 @@ def _generate_graph_query_with_llm_retries(
                 generated_query=previous_query or "",
                 validation_errors=validation_errors,
             )
+            review_ms = (time.time() - review_start) * 1000
+            attempts[-1]["review_ms"] = review_ms
+            attempts[-1]["reviewed"] = bool(review)
 
     return {
         "query": previous_query or "",
