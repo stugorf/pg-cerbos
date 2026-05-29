@@ -145,7 +145,7 @@ class TestGenerateCypher:
 
 
 class TestValidateCypher:
-    """Tests for schema validation of Cypher."""
+    """Tests for local NL-generation validation before sidecar analysis."""
 
     def test_valid_cypher(self, schema):
         cypher = "MATCH (c:Customer)-[:OWNS]->(a:Account) RETURN c.name, a LIMIT 10"
@@ -153,17 +153,17 @@ class TestValidateCypher:
         assert valid is True
         assert len(errors) == 0
 
-    def test_invalid_label(self, schema):
+    def test_label_validation_is_deferred_to_sidecar(self, schema):
         cypher = "MATCH (x:NonExistentVertex) RETURN x"
         valid, errors = validate_cypher_against_schema(cypher, schema)
-        assert valid is False
-        assert any("NonExistentVertex" in e for e in errors)
+        assert valid is True
+        assert errors == []
 
-    def test_invalid_relationship(self, schema):
+    def test_relationship_validation_is_deferred_to_sidecar(self, schema):
         cypher = "MATCH (c:Customer)-[:INVALID_EDGE]->(a:Account) RETURN c"
         valid, errors = validate_cypher_against_schema(cypher, schema)
-        assert valid is False
-        assert any("INVALID_EDGE" in e for e in errors)
+        assert valid is True
+        assert errors == []
 
     def test_order_by_case_passes_validation(self, schema):
         """ORDER BY with CASE for risk_rating (case-insensitive) must pass property validation."""

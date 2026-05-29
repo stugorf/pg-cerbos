@@ -110,6 +110,14 @@ API.add_middleware(
 security = HTTPBearer()
 
 
+def _graph_query_analysis_error_detail(exc: GraphQueryAnalysisError) -> dict:
+    return {
+        "error": "graph_query_analysis_failed",
+        "message": f"Graph query analysis failed: {str(exc)}",
+        "details": exc.details,
+    }
+
+
 @API.on_event("startup")
 def initialize_demo_data_on_startup():
     def run_initializer():
@@ -1011,16 +1019,18 @@ def natural_language_graph_query(
     # Execute via same authorization path as /query/graph
     query = generated_query
     try:
+        analysis_start = time.time()
         cerbos_attributes = analyze_graph_query(
             language=query_type,
             query=query,
             schema=schema,
             mode="read",
         )
+        analysis_ms = (time.time() - analysis_start) * 1000
     except GraphQueryAnalysisError as exc:
         raise HTTPException(
             status_code=exc.status_code,
-            detail=f"Graph query analysis failed: {str(exc)}",
+            detail=_graph_query_analysis_error_detail(exc),
         )
 
     cerbos_client = get_cerbos_client()
@@ -1076,6 +1086,7 @@ def natural_language_graph_query(
             "cypher": query,
             "query": query,
             "query_type": query_type,
+            "route": get_graph_route(query_type),
             "analysis": result.get("analysis", {}),
             "valid": True,
             "validation_errors": [],
@@ -1085,6 +1096,7 @@ def natural_language_graph_query(
             "sequence_metrics": {
                 "schema_ms": schema_ms,
                 "model_ms": model_ms,
+                "analysis_ms": analysis_ms,
                 "cerbos_ms": cerbos_ms,
                 "engine_ms": elapsed_ms,
                 "backend_ms": total_backend_ms,
@@ -1130,17 +1142,19 @@ def execute_graph_query(
         raise HTTPException(status_code=502, detail=f"Failed to retrieve schema: {str(e)}")
 
     try:
+        analysis_start = time.time()
         cerbos_attributes = analyze_graph_query(
             language=query_type,
             query=query,
             schema=schema,
             mode="read",
         )
+        analysis_ms = (time.time() - analysis_start) * 1000
         logger.debug(f"Graph query analysis: {cerbos_attributes}")
     except GraphQueryAnalysisError as exc:
         raise HTTPException(
             status_code=exc.status_code,
-            detail=f"Graph query analysis failed: {str(exc)}",
+            detail=_graph_query_analysis_error_detail(exc),
         )
     
     # Check authorization with Cerbos
@@ -1215,6 +1229,7 @@ def execute_graph_query(
             "execution_time_ms": execution_time,
             "sequence_metrics": {
                 "schema_ms": schema_ms,
+                "analysis_ms": analysis_ms,
                 "cerbos_ms": cerbos_ms,
                 "engine_ms": execution_time,
                 "backend_ms": total_backend_ms

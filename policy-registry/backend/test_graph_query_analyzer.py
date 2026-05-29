@@ -4,12 +4,47 @@ import graph_query_analyzer
 from graph_query_analyzer import GraphQueryAnalysisError, analyze_graph_query
 
 
-def test_local_cypher_analysis_returns_normalized_and_legacy_fields(monkeypatch):
+def test_analyzer_url_is_required_for_cypher(monkeypatch):
     monkeypatch.setattr(graph_query_analyzer, "GRAPH_QUERY_ANALYZER_URL", "")
+
+    with pytest.raises(GraphQueryAnalysisError) as exc:
+        analyze_graph_query(
+            language="cypher",
+            query="MATCH (c:Customer) RETURN c",
+        )
+
+    assert exc.value.status_code == 503
+    assert "sidecar is not configured" in str(exc.value)
+    assert exc.value.details["code"] == "GRAPH_QUERY_ANALYZER_NOT_CONFIGURED"
+
+
+def test_remote_analyzer_success_returns_normalized_and_legacy_fields(monkeypatch):
+    class Response:
+        ok = True
+        status_code = 200
+
+        def json(self):
+            return {
+                "analysis_version": "graph-query-analysis/v1",
+                "complete": True,
+                "language": "cypher",
+                "query_type": "cypher",
+                "query": "MATCH (c:Customer)-[:OWNS]->(a:Account) RETURN c, a LIMIT 10",
+                "is_read_only": True,
+                "has_write_operation": False,
+                "accessed_node_labels": ["Account", "Customer"],
+                "accessed_edge_types": ["OWNS"],
+                "max_traversal_depth": 1,
+                "limit": 10,
+                "customer_team": "Team A",
+            }
+
+    monkeypatch.setattr(graph_query_analyzer, "GRAPH_QUERY_ANALYZER_URL", "http://analyzer")
+    monkeypatch.setattr(graph_query_analyzer.requests, "post", lambda *args, **kwargs: Response())
 
     analysis = analyze_graph_query(
         language="cypher",
-        query="MATCH (c:Customer {team: 'Team A'})-[:OWNS]->(a:Account) RETURN c, a LIMIT 10",
+        query="MATCH (c:Customer)-[:OWNS]->(a:Account) RETURN c, a LIMIT 10",
     )
 
     assert analysis["analysis_version"] == "graph-query-analysis/v1"
@@ -27,19 +62,6 @@ def test_local_cypher_analysis_returns_normalized_and_legacy_fields(monkeypatch)
     assert analysis["max_depth"] == 1
 
 
-def test_local_cypher_analysis_marks_write_operations(monkeypatch):
-    monkeypatch.setattr(graph_query_analyzer, "GRAPH_QUERY_ANALYZER_URL", "")
-
-    analysis = analyze_graph_query(
-        language="cypher",
-        query="MATCH (c:Customer) SET c.reviewed = true RETURN c",
-    )
-
-    assert analysis["statement_type"] == "write"
-    assert analysis["is_read_only"] is False
-    assert analysis["has_write_operation"] is True
-
-
 def test_unsupported_language_requires_remote_analyzer(monkeypatch):
     monkeypatch.setattr(graph_query_analyzer, "GRAPH_QUERY_ANALYZER_URL", "")
 
@@ -50,7 +72,7 @@ def test_unsupported_language_requires_remote_analyzer(monkeypatch):
         )
 
     assert exc.value.status_code == 503
-    assert "requires GRAPH_QUERY_ANALYZER_URL" in str(exc.value)
+    assert "sidecar is not configured" in str(exc.value)
 
 
 def test_remote_analyzer_incomplete_response_fails_closed(monkeypatch):

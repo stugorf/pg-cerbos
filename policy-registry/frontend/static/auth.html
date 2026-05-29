@@ -1019,8 +1019,10 @@ LIMIT 25`
             ]);
         }
 
-        function renderGraphSequence({ startTime, endTime, status, rowCount, queryType, detail, backendMs, metrics }) {
+        function renderGraphSequence({ startTime, endTime, status, rowCount, queryType, detail, backendMs, metrics, route }) {
             const durationMs = endTime - startTime;
+            const graphRoute = getGraphRouteForLanguage(queryType, route);
+            const parseStepName = getGraphParseStepName(queryType);
             const validationFailed = status === 'FAILED' && !metrics && /validation failed|empty graph query/i.test(detail || '');
             if (validationFailed) {
                 renderAgentSequence('graph', [
@@ -1033,7 +1035,15 @@ LIMIT 25`
                         detail: `empty ${queryType} query`
                     },
                     {
-                        name: 'puppygraph.execute',
+                        name: parseStepName,
+                        status: 'SKIPPED',
+                        start: endTime,
+                        end: endTime,
+                        durationMs: 0,
+                        detail: `skipped because ${queryType} validation failed`
+                    },
+                    {
+                        name: graphRoute.executeStep,
                         status: 'SKIPPED',
                         start: endTime,
                         end: endTime,
@@ -1052,34 +1062,48 @@ LIMIT 25`
                 return;
             }
             const deniedByCerbos = isCerbosDenied(detail);
+            const analysisFailed = status === 'FAILED' && !metrics && /analyzer|analysis|parse/i.test(detail || '');
+            const validationEnd = startTime;
+            const analysisMs = metrics?.analysis_ms ?? 0;
             const cerbosMs = metrics?.cerbos_ms ?? 0;
-            const cerbosEnd = startTime + cerbosMs;
-            const executeMs = metrics?.engine_ms ?? backendMs ?? Math.max(0, durationMs - cerbosMs);
+            const analysisEnd = validationEnd + analysisMs;
+            const cerbosEnd = analysisEnd + cerbosMs;
+            const executeMs = metrics?.engine_ms ?? backendMs ?? Math.max(0, durationMs - analysisMs - cerbosMs);
             const executeEnd = cerbosEnd + executeMs;
             renderAgentSequence('graph', [
                 {
                     name: 'query.validated',
-                    status: status === 'FAILED' ? 'ERROR' : 'OK',
+                    status: analysisFailed ? 'OK' : (status === 'FAILED' ? 'ERROR' : 'OK'),
                     start: startTime,
-                    end: startTime,
+                    end: validationEnd,
                     durationMs: 0,
                     detail: `${queryType} validated`
                 },
                 {
-                    name: 'cerbos.authorize',
-                    status: deniedByCerbos ? 'ERROR' : status,
-                    start: startTime,
-                    end: cerbosEnd,
-                    durationMs: cerbosMs,
-                    detail: deniedByCerbos ? 'policy denied' : (status === 'OK' ? 'policy allowed' : 'not measured')
+                    name: parseStepName,
+                    status: analysisFailed ? 'ERROR' : (status === 'FAILED' && !metrics ? 'SKIPPED' : 'OK'),
+                    start: validationEnd,
+                    end: analysisEnd,
+                    durationMs: analysisMs,
+                    detail: analysisFailed
+                        ? 'parser rejected the graph query'
+                        : `parsed with ${getGraphParserLabel(queryType)}`
                 },
                 {
-                    name: 'puppygraph.execute',
-                    status: deniedByCerbos ? 'ERROR' : status,
+                    name: 'cerbos.authorize',
+                    status: analysisFailed ? 'SKIPPED' : (deniedByCerbos ? 'ERROR' : status),
+                    start: analysisEnd,
+                    end: cerbosEnd,
+                    durationMs: cerbosMs,
+                    detail: analysisFailed ? 'skipped because parsing failed' : (deniedByCerbos ? 'policy denied' : (status === 'OK' ? 'policy allowed' : 'not measured'))
+                },
+                {
+                    name: graphRoute.executeStep,
+                    status: analysisFailed ? 'SKIPPED' : (deniedByCerbos ? 'ERROR' : status),
                     start: cerbosEnd,
                     end: executeEnd,
                     durationMs: executeMs,
-                    detail: deniedByCerbos ? 'skipped' : (status === 'OK' ? 'completed' : 'failed')
+                    detail: analysisFailed ? 'skipped because parsing failed' : (deniedByCerbos ? 'skipped' : (status === 'OK' ? `completed on ${graphRoute.database}` : 'failed'))
                 },
                 {
                     name: 'query.metrics',
@@ -1092,16 +1116,21 @@ LIMIT 25`
             ]);
         }
 
-        function renderGraphNaturalLanguageSequence({ startTime, endTime, status, rowCount, detail, metrics, executed }) {
+        function renderGraphNaturalLanguageSequence({ startTime, endTime, status, rowCount, detail, metrics, executed, queryType, route }) {
             const durationMs = endTime - startTime;
+            const graphRoute = getGraphRouteForLanguage(queryType, route);
+            const parseStepName = getGraphParseStepName(queryType);
             const schemaMs = metrics?.schema_ms ?? 0;
             const modelMs = metrics?.model_ms ?? 0;
+            const analysisMs = metrics?.analysis_ms ?? 0;
             const cerbosMs = metrics?.cerbos_ms ?? 0;
             const engineMs = metrics?.engine_ms ?? 0;
             const schemaEnd = startTime + schemaMs;
             const modelEnd = schemaEnd + modelMs;
-            const cerbosEnd = modelEnd + cerbosMs;
+            const analysisEnd = modelEnd + analysisMs;
+            const cerbosEnd = analysisEnd + cerbosMs;
             const engineEnd = cerbosEnd + engineMs;
+            const parseFailed = status === 'FAILED' && /analyzer|analysis|parse/i.test(detail || '');
             const steps = [
                 {
                     name: 'schema.fetch',
@@ -1124,33 +1153,53 @@ LIMIT 25`
             if (executed) {
                 steps.push(
                     {
-                        name: 'cerbos.authorize',
-                        status,
+                        name: parseStepName,
+                        status: parseFailed ? 'ERROR' : 'OK',
                         start: modelEnd,
-                        end: cerbosEnd,
-                        durationMs: cerbosMs,
-                        detail: status === 'OK' ? 'policy allowed' : 'policy denied'
+                        end: analysisEnd,
+                        durationMs: analysisMs,
+                        detail: parseFailed ? 'parser rejected the generated graph query' : `parsed with ${getGraphParserLabel(queryType)}`
                     },
                     {
-                        name: 'graph.execute',
-                        status,
+                        name: 'cerbos.authorize',
+                        status: parseFailed ? 'SKIPPED' : status,
+                        start: analysisEnd,
+                        end: cerbosEnd,
+                        durationMs: cerbosMs,
+                        detail: parseFailed ? 'skipped because parsing failed' : (status === 'OK' ? 'policy allowed' : 'policy denied')
+                    },
+                    {
+                        name: graphRoute.executeStep,
+                        status: parseFailed ? 'SKIPPED' : status,
                         start: cerbosEnd,
                         end: engineEnd,
                         durationMs: engineMs,
-                        detail: status === 'OK' ? 'completed' : 'skipped'
+                        detail: parseFailed ? 'skipped because parsing failed' : (status === 'OK' ? `completed on ${graphRoute.database}` : 'skipped')
                     }
                 );
             } else {
-                steps.push({
-                    name: 'graph.execute',
-                    status: 'SKIPPED',
-                    start: modelEnd,
-                    end: modelEnd,
-                    durationMs: 0,
-                    detail: status === 'OK'
-                        ? 'skipped; generated graph query was not executed'
-                        : 'skipped because graph query generation or validation failed'
-                });
+                steps.push(
+                    {
+                        name: parseStepName,
+                        status: 'SKIPPED',
+                        start: modelEnd,
+                        end: modelEnd,
+                        durationMs: 0,
+                        detail: status === 'OK'
+                            ? 'skipped because execution was not requested'
+                            : 'skipped because graph query generation or validation failed'
+                    },
+                    {
+                        name: graphRoute.executeStep,
+                        status: 'SKIPPED',
+                        start: modelEnd,
+                        end: modelEnd,
+                        durationMs: 0,
+                        detail: status === 'OK'
+                            ? 'skipped; generated graph query was not executed'
+                            : 'skipped because graph query generation or validation failed'
+                    }
+                );
             }
 
             steps.push({
@@ -1212,6 +1261,11 @@ LIMIT 25`
             if (!payload) return fallback;
             if (typeof payload === 'string') return payload;
             if (typeof payload.detail === 'string') return payload.detail;
+            if (payload.detail && typeof payload.detail === 'object') {
+                if (typeof payload.detail.message === 'string') return payload.detail.message;
+                if (typeof payload.detail.error === 'string') return payload.detail.error;
+            }
+            if (typeof payload.message === 'string') return payload.message;
             if (typeof payload.error === 'string') return payload.error;
             if (Array.isArray(payload.validation_errors) && payload.validation_errors.length) return payload.validation_errors.join(' ');
             return fallback;
@@ -2515,6 +2569,44 @@ LIMIT 25`
             return labels[type] || type;
         }
 
+        function getGraphRouteForLanguage(type, route) {
+            const normalized = (type || 'cypher').toLowerCase();
+            const defaults = {
+                cypher: { adapter: 'puppygraph', database: 'PuppyGraph', executeStep: 'puppygraph.execute' },
+                gremlin: { adapter: 'puppygraph', database: 'PuppyGraph', executeStep: 'puppygraph.execute' },
+                sparql: { adapter: 'fuseki', database: 'Apache Jena Fuseki', executeStep: 'fuseki.execute' },
+                gql: { adapter: 'neo4j', database: 'Neo4j', executeStep: 'neo4j.execute' }
+            };
+            const selected = defaults[normalized] || defaults.cypher;
+            if (!route || typeof route !== 'object') return selected;
+            const adapter = route.adapter || route.engine || selected.adapter;
+            return {
+                adapter,
+                database: route.database || selected.database,
+                executeStep: `${adapter}.execute`
+            };
+        }
+
+        function getGraphParseStepName(type) {
+            const steps = {
+                cypher: 'cypher.opencypher_parse',
+                gremlin: 'gremlin.bytecode_parse',
+                sparql: 'sparql.arq_parse',
+                gql: 'gql.iso_parse'
+            };
+            return steps[(type || 'cypher').toLowerCase()] || 'graph.parse';
+        }
+
+        function getGraphParserLabel(type) {
+            const labels = {
+                cypher: 'Neo4j/openCypher tooling',
+                gremlin: 'TinkerPop Bytecode',
+                sparql: 'Apache Jena ARQ',
+                gql: 'ISO GQL grammar'
+            };
+            return labels[(type || 'cypher').toLowerCase()] || 'graph parser';
+        }
+
         function getGraphExamplesForLanguage(type) {
             return graphSavedQueries.filter((sq) => sq.type === type);
         }
@@ -2668,7 +2760,8 @@ LIMIT 25`
                             queryType,
                             backendMs: result.execution_time_ms,
                             detail: `Overall: ${getGraphRowCount(result)} row(s), ${queryType} execution.`,
-                            metrics: result.sequence_metrics
+                            metrics: result.sequence_metrics,
+                            route: result.route
                         });
                     } else if (result.success) {
                         queryStatus.textContent = 'No results';
@@ -2684,7 +2777,8 @@ LIMIT 25`
                             queryType,
                             backendMs: result.execution_time_ms,
                             detail: `Overall: 0 row(s), ${queryType} execution.`,
-                            metrics: result.sequence_metrics
+                            metrics: result.sequence_metrics,
+                            route: result.route
                         });
                     } else {
                         const errorMessage = getErrorMessageFromPayload(result, 'Graph query failed.');
@@ -2697,7 +2791,8 @@ LIMIT 25`
                             rowCount: 0,
                             queryType,
                             detail: errorMessage,
-                            metrics: result.sequence_metrics
+                            metrics: result.sequence_metrics,
+                            route: result.route
                         });
                     }
                 } else {
@@ -2711,7 +2806,8 @@ LIMIT 25`
                         rowCount: 0,
                         queryType,
                         detail: errorMessage,
-                        metrics: result.sequence_metrics
+                        metrics: result.sequence_metrics,
+                        route: result.route
                     });
                 }
             } catch (error) {
@@ -2963,9 +3059,8 @@ LIMIT 25`
                 let result;
                 try { result = JSON.parse(text); } catch (_) { result = {}; }
                 if (!res.ok) {
-                    const detail = (result && result.detail) ? result.detail : (res.statusText || text || 'Request failed');
                     if (cypherPre) cypherPre.textContent = '(request failed – see message below)';
-                    showGraphQueryError(typeof detail === 'string' ? detail : JSON.stringify(detail));
+                    showGraphQueryError(getErrorMessageFromPayload(result, res.statusText || text || 'Request failed'));
                     return;
                 }
                 if (block) block.style.display = 'block';
@@ -3005,6 +3100,7 @@ LIMIT 25`
                     status: result.valid ? 'OK' : 'FAILED',
                     rowCount: 0,
                     executed: false,
+                    queryType,
                     metrics: result.sequence_metrics,
                     detail: result.valid ? `Overall: ${languageLabel} generated, execution skipped.` : 'Overall: generated graph query failed validation.'
                 });
@@ -3017,6 +3113,7 @@ LIMIT 25`
                     status: 'FAILED',
                     rowCount: 0,
                     executed: false,
+                    queryType,
                     detail: `Overall: ${e.message || String(e)}`
                 });
             } finally {
@@ -3093,7 +3190,7 @@ LIMIT 25`
                     var t = await schemaRes.text();
                     var d = {};
                     try { d = JSON.parse(t); } catch (_) {}
-                    showGraphQueryError((d.detail) ? d.detail : (schemaRes.statusText || t || 'Failed to fetch schema'));
+                    showGraphQueryError(getErrorMessageFromPayload(d, schemaRes.statusText || t || 'Failed to fetch schema'));
                     setNLStepStatus(1, 'error');
                     return;
                 }
@@ -3112,7 +3209,8 @@ LIMIT 25`
                 try { nlResult = JSON.parse(nlText); } catch (_) {}
                 if (!nlRes.ok) {
                     if (cypherPreEl) cypherPreEl.textContent = '(failed to generate graph query - see message below)';
-                    showGraphQueryError((nlResult.detail) ? nlResult.detail : (nlRes.statusText || nlText || 'Failed to generate graph query'));
+                    const errorMessage = getErrorMessageFromPayload(nlResult, nlRes.statusText || nlText || 'Failed to generate graph query');
+                    showGraphQueryError(errorMessage);
                     setNLStepStatus(2, 'error');
                     setNLStepStatus(3, 'error');
                     setNLStepStatus(4, 'error');
@@ -3122,8 +3220,9 @@ LIMIT 25`
                         status: 'FAILED',
                         rowCount: 0,
                         executed: false,
+                        queryType,
                         metrics: nlResult.sequence_metrics,
-                        detail: 'Overall: natural language request failed.'
+                        detail: `Overall: ${errorMessage}`
                     });
                     return;
                 }
@@ -3139,6 +3238,7 @@ LIMIT 25`
                         status: 'FAILED',
                         rowCount: 0,
                         executed: false,
+                        queryType,
                         metrics: nlResult.sequence_metrics,
                         detail: 'Overall: generated graph query failed validation.'
                     });
@@ -3172,6 +3272,7 @@ LIMIT 25`
                         status: nlResult.valid ? 'OK' : 'FAILED',
                         rowCount: 0,
                         executed: false,
+                        queryType,
                         metrics: nlResult.sequence_metrics,
                         detail: `Overall: ${languageLabel} generated, execution skipped.`
                     });
@@ -3193,19 +3294,24 @@ LIMIT 25`
                         status: 'OK',
                         rowCount: getGraphRowCount(nlResult),
                         executed: true,
+                        queryType,
+                        route: nlResult.route,
                         metrics: nlResult.sequence_metrics,
                         detail: `Overall: ${getGraphRowCount(nlResult)} row(s), natural language execution.`
                     });
                 } else {
-                    queryOutput.innerHTML = '<div class="error-message">' + escapeHtml(nlResult.detail || nlResult.error || 'No data returned') + '</div>';
+                    const errorMessage = getErrorMessageFromPayload(nlResult, 'No data returned');
+                    queryOutput.innerHTML = '<div class="error-message">' + escapeHtml(errorMessage) + '</div>';
                     renderGraphNaturalLanguageSequence({
                         startTime,
                         endTime,
                         status: 'FAILED',
                         rowCount: 0,
                         executed: true,
+                        queryType,
+                        route: nlResult.route,
                         metrics: nlResult.sequence_metrics,
-                        detail: `Overall: ${nlResult.detail || nlResult.error || 'No data returned'}`
+                        detail: `Overall: ${errorMessage}`
                     });
                 }
             } catch (e) {
@@ -3218,6 +3324,7 @@ LIMIT 25`
                     status: 'FAILED',
                     rowCount: 0,
                     executed: true,
+                    queryType,
                     detail: `Overall: ${e.message || String(e)}`
                 });
             } finally {
