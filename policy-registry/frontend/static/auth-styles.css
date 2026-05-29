@@ -2497,6 +2497,24 @@ body {
     border: 1px solid #333;
 }
 
+.log-limit-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: #333;
+    font-weight: 600;
+}
+
+.log-limit-label select {
+    min-width: 72px;
+    padding: 8px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    background: white;
+    color: #1f2937;
+    font-weight: 600;
+}
+
 .logs-container {
     display: flex;
     flex-direction: column;
@@ -2514,14 +2532,35 @@ body {
 .log-entry {
     background: #252526;
     border-left: 3px solid #555;
+    border-top: 0;
+    border-right: 0;
+    border-bottom: 0;
+    color: inherit;
+    cursor: pointer;
+    display: block;
+    font: inherit;
+    text-align: left;
+    width: 100%;
     padding: 12px;
     margin-bottom: 8px;
     border-radius: 4px;
 }
 
+.log-entry:hover,
+.log-entry:focus-visible {
+    outline: 2px solid #7dd3fc;
+    outline-offset: 2px;
+    background: #2d2d30;
+}
+
 .log-entry.authz-decision {
     border-left-color: #4ec9b0;
     background: #1e3a3a;
+}
+
+.log-entry.authz-decision:hover,
+.log-entry.authz-decision:focus-visible {
+    background: #254747;
 }
 
 .log-header {
@@ -2647,6 +2686,109 @@ body {
 .log-decision.effect-deny {
     background: #f48771;
     color: #3a1e1e;
+}
+
+.cerbos-log-detail-modal {
+    width: min(1180px, 94vw);
+    max-width: 1180px;
+    max-height: 88vh;
+    overflow: hidden;
+}
+
+.cerbos-log-detail-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px;
+    padding: 18px;
+    min-height: 520px;
+    max-height: calc(88vh - 78px);
+}
+
+.cerbos-log-policy-pane,
+.cerbos-log-raw-pane {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid #d8dee9;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #ffffff;
+}
+
+.detail-pane-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border-bottom: 1px solid #d8dee9;
+    color: #1f2937;
+    font-weight: 700;
+}
+
+.detail-pane-meta {
+    color: #667085;
+    font-size: 12px;
+    font-weight: 500;
+    text-align: right;
+}
+
+.policy-code-view,
+.log-detail-pre {
+    flex: 1;
+    overflow: auto;
+    margin: 0;
+    padding: 12px 0;
+    background: #0f172a;
+    color: #e5e7eb;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+.log-detail-pre {
+    padding: 14px;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+
+.policy-code-line {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr);
+    min-height: 19px;
+}
+
+.policy-line-number {
+    color: #94a3b8;
+    padding: 0 10px;
+    text-align: right;
+    user-select: none;
+}
+
+.policy-line-text {
+    padding-right: 12px;
+    white-space: pre;
+}
+
+.policy-line-applied {
+    background: #fff7cc;
+    color: #111827;
+}
+
+.policy-line-applied .policy-line-number {
+    color: #92400e;
+    font-weight: 700;
+}
+
+@media (max-width: 900px) {
+    .cerbos-log-detail-body {
+        grid-template-columns: 1fr;
+        min-height: 0;
+    }
+
+    .cerbos-log-detail-modal {
+        max-height: 94vh;
+    }
 }
 
 /* Graph Query Styles */

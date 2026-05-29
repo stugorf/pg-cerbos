@@ -16,10 +16,15 @@ storage:
 # Audit logging configuration (simplified for MVP)
 audit:
   enabled: true
-  backend: "local"
-  local:
-    storagePath: /tmp/cerbos-audit
-    retentionPeriod: 168h  # 7 days
+  accessLogsEnabled: true
+  decisionLogsEnabled: true
+  backend: "file"
+  file:
+    path: /audit/cerbos-audit.log
+    logRotation:
+      maxFileSizeMB: 10
+      maxFileCount: 5
+      maxFileAgeDays: 7
 
 # Telemetry (disable in production if not needed)
 telemetry:
