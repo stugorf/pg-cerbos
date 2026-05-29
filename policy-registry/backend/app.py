@@ -1,4 +1,4 @@
-import io, os, tarfile, time, threading, yaml
+import io, os, tarfile, time, threading, yaml, json
 import logging
 from datetime import datetime
 from typing import List, Optional
@@ -2196,86 +2196,163 @@ def validate_cerbos_policy(policy_data: dict, current_user: User = Depends(get_c
 
 @API.get("/cerbos/logs")
 def get_cerbos_logs(current_user: User = Depends(get_current_admin_user), lines: int = 200):
-    """Get Cerbos container logs to demonstrate authorization as a service."""
-    import subprocess
-    import json
-    
+    """Get Cerbos audit logs to demonstrate authorization as a service."""
     try:
-        # Get logs from Cerbos container
-        result = subprocess.run(
-            ["docker", "logs", "--tail", str(lines), "pg-cerbos-cerbos", "--timestamps"],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        
-        if result.returncode != 0:
-            logger.warning(f"Failed to get Cerbos logs: {result.stderr}")
-            # Fallback: return backend authorization logs
+        log_output = read_cerbos_audit_log_output(lines)
+        if not log_output.strip():
             return get_backend_authz_logs(lines)
-        
-        # Parse JSON logs if available, otherwise return as text
-        log_lines = result.stdout.strip().split('\n')
-        parsed_logs = []
-        
-        for line in log_lines:
-            if not line.strip():
-                continue
-            
-            # Extract timestamp if present (Docker logs format: 2024-01-01T12:00:00.000000000Z message)
-            timestamp = ""
-            message = line
-            if line.startswith("20") and "T" in line[:30]:
-                parts = line.split(" ", 1)
-                if len(parts) == 2:
-                    timestamp = parts[0]
-                    message = parts[1]
-            
-            try:
-                log_entry = json.loads(message)
-                parsed_logs.append({
-                    "timestamp": log_entry.get("ts", timestamp),
-                    "level": log_entry.get("level", "info"),
-                    "message": log_entry.get("msg", message),
-                    "call_id": log_entry.get("callID", ""),
-                    "method": log_entry.get("method", ""),
-                    "raw": line,
-                    "type": "cerbos"
-                })
-            except json.JSONDecodeError:
-                # Not JSON, treat as plain text
-                # Check if it's an authorization-related log
-                is_authz = "CheckResources" in message or "authorization" in message.lower() or "EFFECT" in message
-                parsed_logs.append({
-                    "timestamp": timestamp,
-                    "level": "info",
-                    "message": message,
-                    "call_id": "",
-                    "method": "CheckResources" if is_authz else "",
-                    "raw": line,
-                    "type": "cerbos"
-                })
-        
-        # Also include backend authorization logs
-        backend_logs = get_backend_authz_logs(50)
-        if backend_logs.get("logs"):
-            parsed_logs.extend(backend_logs["logs"])
-        
-        # Sort by timestamp (newest first)
-        parsed_logs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
-        
-        return {
-            "logs": parsed_logs[:lines],
-            "total": len(parsed_logs)
-        }
-        
-    except subprocess.TimeoutExpired:
-        return get_backend_authz_logs(lines)
-    except FileNotFoundError:
-        return get_backend_authz_logs(lines)
+        return parse_cerbos_log_output(log_output, lines)
     except Exception as e:
         logger.error(f"Error fetching Cerbos logs: {e}", exc_info=True)
         return get_backend_authz_logs(lines)
+
+
+def read_cerbos_audit_log_output(lines: int) -> str:
+    """Read recent Cerbos file-audit records from the shared audit volume."""
+    import glob
+
+    audit_path = os.getenv("CERBOS_AUDIT_LOG_PATH", "/audit/cerbos-audit.log")
+    candidates = [
+        path for path in glob.glob(f"{audit_path}*")
+        if os.path.isfile(path)
+    ]
+    if not candidates:
+        logger.info("No Cerbos audit log files found at %s", audit_path)
+        return ""
+
+    candidates.sort(key=lambda path: os.path.getmtime(path))
+    records = []
+    for path in candidates:
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as audit_file:
+                records.extend(line.rstrip("\n") for line in audit_file if line.strip())
+        except OSError as exc:
+            logger.warning("Failed reading Cerbos audit log file %s: %s", path, exc)
+
+    return "\n".join(records[-lines:])
+
+
+def parse_cerbos_log_output(log_output: str, lines: int) -> dict:
+    import json
+
+    log_lines = log_output.strip().split('\n')
+    parsed_logs = []
+
+    for line in log_lines:
+        if not line.strip():
+            continue
+
+        timestamp = ""
+        message = line
+        if line.startswith("20") and "T" in line[:30]:
+            parts = line.split(" ", 1)
+            if len(parts) == 2:
+                timestamp = parts[0]
+                message = parts[1]
+
+        try:
+            log_entry = json.loads(message)
+            cerbos_meta = log_entry.get("cerbos") or {}
+            audit_metadata = extract_cerbos_audit_metadata(log_entry)
+            parsed_log = {
+                "timestamp": log_entry.get("@timestamp") or log_entry.get("ts") or log_entry.get("timestamp") or timestamp,
+                "level": log_entry.get("log.level") or log_entry.get("level", "info"),
+                "message": log_entry.get("message") or log_entry.get("msg") or summarize_cerbos_audit_entry(log_entry),
+                "call_id": cerbos_meta.get("call_id") or log_entry.get("callID") or log_entry.get("callId", ""),
+                "method": log_entry.get("grpc.method") or log_entry.get("method", ""),
+                "raw": line,
+                "type": "cerbos",
+                "logger": log_entry.get("log.logger", ""),
+                "log_kind": log_entry.get("log.kind", ""),
+                "grpc_code": log_entry.get("grpc.code", ""),
+                "grpc_time_ms": log_entry.get("grpc.time_ms", "")
+            }
+            parsed_log.update(audit_metadata)
+            parsed_logs.append(parsed_log)
+        except json.JSONDecodeError:
+            is_authz = "CheckResources" in message or "authorization" in message.lower() or "EFFECT" in message
+            parsed_logs.append({
+                "timestamp": timestamp,
+                "level": "info",
+                "message": message,
+                "call_id": "",
+                "method": "CheckResources" if is_authz else "",
+                "raw": line,
+                "type": "cerbos"
+            })
+
+    backend_logs = get_backend_authz_logs(50)
+    if backend_logs.get("logs"):
+        parsed_logs.extend(backend_logs["logs"])
+
+    parsed_logs.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+
+    return {
+        "logs": parsed_logs[:lines],
+        "total": len(parsed_logs)
+    }
+
+
+def extract_cerbos_audit_metadata(log_entry: dict) -> dict:
+    check_resources = log_entry.get("checkResources") or {}
+    inputs = check_resources.get("inputs") or []
+    outputs = check_resources.get("outputs") or []
+    if not inputs or not outputs:
+        return {}
+
+    input_entry = inputs[0] or {}
+    output_entry = outputs[0] or {}
+    resource = input_entry.get("resource") or {}
+    principal = input_entry.get("principal") or {}
+    actions = output_entry.get("actions") or {}
+    action = next(iter(actions.keys()), "")
+    action_result = actions.get(action) or {}
+    effect = action_result.get("effect", "")
+    policy_id = action_result.get("policy", "")
+    policy_source = ""
+    effective_policies = ((log_entry.get("auditTrail") or {}).get("effectivePolicies") or {})
+    if policy_id in effective_policies:
+        policy_source = ((effective_policies[policy_id] or {}).get("attributes") or {}).get("source", "")
+
+    policy_name = policy_id
+    if policy_source:
+        policy_name = os.path.splitext(os.path.basename(policy_source))[0]
+    elif policy_id.startswith("resource."):
+        parts = policy_id.split(".")
+        if len(parts) >= 2:
+            policy_name = parts[1]
+
+    resource_attr = resource.get("attr") or {}
+    return {
+        "decision": "ALLOW" if effect == "EFFECT_ALLOW" else "DENY" if effect == "EFFECT_DENY" else effect,
+        "allowed": effect == "EFFECT_ALLOW",
+        "action": action,
+        "user_id": principal.get("id", ""),
+        "user_roles": principal.get("roles", []),
+        "resource_kind": resource.get("kind", ""),
+        "policy": policy_name,
+        "policy_id": policy_id,
+        "policy_source": policy_source,
+        "query_preview": resource_attr.get("body"),
+    }
+
+
+def summarize_cerbos_audit_entry(log_entry: dict) -> str:
+    metadata = extract_cerbos_audit_metadata(log_entry)
+    if metadata:
+        return (
+            f"Cerbos Decision Audit: {metadata.get('decision')} | "
+            f"User: {metadata.get('user_id')} | "
+            f"Roles: {', '.join(metadata.get('user_roles') or [])} | "
+            f"Resource: {metadata.get('resource_kind')} | "
+            f"Action: {metadata.get('action')} | "
+            f"Policy: {metadata.get('policy')}"
+        )
+    log_kind = log_entry.get("log.kind")
+    method = log_entry.get("method") or log_entry.get("grpc.method")
+    if log_kind:
+        return f"Cerbos {log_kind} audit log{f': {method}' if method else ''}"
+    return json.dumps(log_entry, sort_keys=True)
 
 
 def get_backend_authz_logs(lines: int = 100):
@@ -2309,9 +2386,15 @@ def get_backend_authz_logs(lines: int = 100):
             "raw": decision_text,
             "type": "authorization",
             "decision": decision['decision'],
+            "allowed": decision['allowed'],
+            "action": decision['action'],
             "user_email": decision['user_email'],
+            "user_id": decision['user_id'],
+            "user_roles": decision['user_roles'],
             "resource_kind": decision['resource_kind'],
-            "policy": policy_name
+            "policy": policy_name,
+            "reason": decision.get('reason'),
+            "query_preview": decision.get('query_preview')
         })
     
     if not logs:

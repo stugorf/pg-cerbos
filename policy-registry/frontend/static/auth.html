@@ -396,6 +396,17 @@
                             </p>
                         </div>
                         <div class="logs-controls">
+                            <label class="log-limit-label" for="cerbos-log-limit">
+                                Show
+                                <select id="cerbos-log-limit">
+                                    <option value="5" selected>5</option>
+                                    <option value="10">10</option>
+                                    <option value="15">15</option>
+                                    <option value="20">20</option>
+                                    <option value="25">25</option>
+                                </select>
+                                logs
+                            </label>
                             <button id="refresh-cerbos-logs" class="btn btn-primary">Refresh Logs</button>
                             <button id="clear-cerbos-logs" class="btn btn-secondary">Clear Display</button>
                             <label class="auto-refresh-label">
@@ -507,6 +518,32 @@
                     <button id="cerbos-validate-policy-btn" class="btn btn-secondary">Validate</button>
                     <button id="cerbos-save-policy-btn" class="btn btn-primary">Save Policy</button>
                     <button onclick="closeCerbosPolicyModal()" class="btn btn-secondary">Cancel</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Cerbos Log Detail Modal -->
+        <div id="cerbos-log-detail-modal" class="modal-overlay" style="display: none;">
+            <div class="modal cerbos-log-detail-modal">
+                <div class="modal-header">
+                    <h3 id="cerbos-log-detail-title">Authorization Log Detail</h3>
+                    <button class="modal-close" type="button" onclick="closeCerbosLogDetailModal()">&times;</button>
+                </div>
+                <div class="cerbos-log-detail-body">
+                    <section class="cerbos-log-policy-pane">
+                        <div class="detail-pane-heading">
+                            <span>Policy</span>
+                            <span id="cerbos-log-policy-path" class="detail-pane-meta"></span>
+                        </div>
+                        <div id="cerbos-log-policy-content" class="policy-code-view"></div>
+                    </section>
+                    <section class="cerbos-log-raw-pane">
+                        <div class="detail-pane-heading">
+                            <span>Full Log</span>
+                            <span id="cerbos-log-detail-meta" class="detail-pane-meta"></span>
+                        </div>
+                        <pre id="cerbos-log-raw-content" class="log-detail-pre"></pre>
+                    </section>
                 </div>
             </div>
         </div>
@@ -3971,6 +4008,12 @@ LIMIT 25`
             }
         });
 
+        document.getElementById('cerbos-log-detail-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'cerbos-log-detail-modal') {
+                closeCerbosLogDetailModal();
+            }
+        });
+
         // Close modal when clicking close button
         document.querySelectorAll('.modal-close').forEach(btn => {
             btn.addEventListener('click', hideModal);
@@ -5153,6 +5196,15 @@ principalPolicy:
         // =============================================================================
 
         let cerbosLogsInterval = null;
+        let cerbosLogsCache = [];
+        let cerbosPoliciesCache = null;
+
+        function getCerbosLogLimit() {
+            const limitEl = document.getElementById('cerbos-log-limit');
+            const requested = parseInt(limitEl?.value || '5', 10);
+            if (Number.isNaN(requested)) return 5;
+            return Math.max(5, Math.min(25, requested));
+        }
 
         // Load Cerbos logs
         async function loadCerbosLogs() {
@@ -5186,7 +5238,8 @@ principalPolicy:
                     return;
                 }
                 
-                displayCerbosLogs(data.logs || []);
+                cerbosLogsCache = data.logs || [];
+                displayCerbosLogs(cerbosLogsCache);
                 
             } catch (error) {
                 console.error('Error loading Cerbos logs:', error);
@@ -5225,21 +5278,21 @@ principalPolicy:
                 
                 // Return negative if B is newer (should come first), so dateB - dateA
                 return dateB - dateA;
-            }).slice(0, 200); // Show up to 200 entries
+            });
             
-            // Use sorted logs directly (maintain chronological order)
-            const displayLogs = sortedLogs;
+            const visibleLimit = getCerbosLogLimit();
+            const displayLogs = sortedLogs.slice(0, visibleLimit);
             
             let html = '<div class="logs-container">';
-            html += `<div class="logs-count">Showing ${displayLogs.length} log entries (newest first)</div>`;
+            html += `<div class="logs-count">Showing ${displayLogs.length} of ${sortedLogs.length} log entries (newest first)</div>`;
             
-            displayLogs.forEach(log => {
+            displayLogs.forEach((log, index) => {
                 const isAuthzDecision = log.method && log.method.includes('CheckResources') || log.type === 'authorization';
                 const logClass = isAuthzDecision ? 'log-entry authz-decision' : 'log-entry';
                 const timestamp = log.timestamp ? new Date(log.timestamp).toLocaleString() : new Date().toLocaleString();
                 const levelClass = `log-level log-level-${log.level || 'info'}`;
                 
-                html += `<div class="${logClass}">`;
+                html += `<div class="${logClass}" data-log-index="${index}" role="button" tabindex="0" aria-label="Open log detail">`;
                 
                 if (isAuthzDecision) {
                     html += `<div class="log-header">`;
@@ -5278,9 +5331,158 @@ principalPolicy:
             
             html += '</div>';
             logsOutput.innerHTML = html;
+
+            logsOutput.querySelectorAll('[data-log-index]').forEach((entry) => {
+                const openEntry = () => {
+                    const index = parseInt(entry.getAttribute('data-log-index'), 10);
+                    openCerbosLogDetailModal(displayLogs[index]);
+                };
+                entry.addEventListener('click', openEntry);
+                entry.addEventListener('keydown', (event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        openEntry();
+                    }
+                });
+            });
             
             // Auto-scroll to top (newest logs are first)
             logsOutput.scrollTop = 0;
+        }
+
+        async function openCerbosLogDetailModal(log) {
+            if (!log) return;
+            const modal = document.getElementById('cerbos-log-detail-modal');
+            const title = document.getElementById('cerbos-log-detail-title');
+            const policyPathEl = document.getElementById('cerbos-log-policy-path');
+            const policyContentEl = document.getElementById('cerbos-log-policy-content');
+            const rawContentEl = document.getElementById('cerbos-log-raw-content');
+            const metaEl = document.getElementById('cerbos-log-detail-meta');
+            const timestamp = log.timestamp ? new Date(log.timestamp).toLocaleString() : 'No timestamp';
+            title.textContent = log.type === 'authorization' ? 'Authorization Decision Detail' : 'Cerbos Log Detail';
+            metaEl.textContent = `${timestamp}${log.decision ? ` · ${log.decision}` : ''}`;
+            rawContentEl.textContent = JSON.stringify(log, null, 2);
+            policyPathEl.textContent = '';
+            policyContentEl.innerHTML = '<div class="policy-info">Loading policy...</div>';
+            modal.style.display = 'flex';
+
+            try {
+                const policy = await resolveCerbosPolicyForLog(log);
+                if (!policy) {
+                    policyContentEl.innerHTML = '<div class="policy-info">No matching policy file was found for this log.</div>';
+                    return;
+                }
+                policyPathEl.textContent = policy.path;
+                const highlight = findAppliedPolicyRange(policy.content, log);
+                policyContentEl.innerHTML = renderPolicyWithHighlight(policy.content, highlight);
+                requestAnimationFrame(() => {
+                    const highlighted = policyContentEl.querySelector('.policy-line-applied');
+                    if (highlighted) {
+                        highlighted.scrollIntoView({ block: 'center' });
+                    }
+                });
+            } catch (error) {
+                policyContentEl.innerHTML = `<div class="error-message">Error loading policy: ${escapeHtml(error.message)}</div>`;
+            }
+        }
+
+        function closeCerbosLogDetailModal() {
+            document.getElementById('cerbos-log-detail-modal').style.display = 'none';
+        }
+
+        async function resolveCerbosPolicyForLog(log) {
+            const token = authToken || localStorage.getItem('authToken');
+            if (!token) throw new Error('Please log in to view policy details.');
+            if (!cerbosPoliciesCache) {
+                const res = await fetch(`${API_BASE}/cerbos/policies`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+                }
+                const data = await res.json();
+                cerbosPoliciesCache = data.policies || [];
+            }
+
+            const candidates = [
+                log.policy_source,
+                log.policy,
+                log.resource_kind,
+                log.resourceKind
+            ].filter(Boolean).map((value) => String(value).toLowerCase());
+
+            return cerbosPoliciesCache.find((policy) => {
+                const path = String(policy.path || '').toLowerCase();
+                return candidates.some((candidate) =>
+                    path === candidate ||
+                    path.endsWith(`/${candidate}.yaml`) ||
+                    path.endsWith(`/${candidate}.yml`) ||
+                    path.endsWith(`${candidate}.yaml`) ||
+                    path.endsWith(`${candidate}.yml`)
+                );
+            }) || null;
+        }
+
+        function findAppliedPolicyRange(content, log) {
+            const lines = content.split('\n');
+            const action = String(log.action || parseLogField(log.message, 'Action') || '').toLowerCase();
+            const effect = log.decision === 'DENY' ? 'EFFECT_DENY' : log.decision === 'ALLOW' ? 'EFFECT_ALLOW' : '';
+            const roles = Array.isArray(log.user_roles)
+                ? log.user_roles.map((role) => String(role).toLowerCase())
+                : String(parseLogField(log.message, 'Roles') || '').split(',').map((role) => role.trim().toLowerCase()).filter(Boolean);
+            const ruleStarts = [];
+
+            lines.forEach((line, index) => {
+                if (/^\s*-\s+actions\s*:/.test(line)) {
+                    ruleStarts.push(index);
+                }
+            });
+
+            let best = null;
+            for (let i = 0; i < ruleStarts.length; i++) {
+                const start = ruleStarts[i];
+                const end = i + 1 < ruleStarts.length ? ruleStarts[i + 1] - 1 : lines.length - 1;
+                const block = lines.slice(start, end + 1).join('\n').toLowerCase();
+                let score = 0;
+                if (action && block.includes(action)) score += 4;
+                if (effect && block.includes(effect.toLowerCase())) score += 4;
+                if (roles.some((role) => role && block.includes(`"${role}"`))) score += 2;
+                if (roles.some((role) => role && block.includes(role))) score += 1;
+                if (!best || score > best.score) {
+                    best = { start, end, score };
+                }
+            }
+
+            if (!best || best.score === 0) return null;
+
+            let contextStart = best.start;
+            for (let i = best.start - 1; i >= 0; i--) {
+                const trimmed = lines[i].trim();
+                if (trimmed === '' || trimmed.startsWith('#')) {
+                    contextStart = i;
+                    continue;
+                }
+                break;
+            }
+            return { start: contextStart, end: best.end };
+        }
+
+        function renderPolicyWithHighlight(content, highlight) {
+            return content.split('\n').map((line, index) => {
+                const isApplied = highlight && index >= highlight.start && index <= highlight.end;
+                return `
+                    <div class="policy-code-line ${isApplied ? 'policy-line-applied' : ''}">
+                        <span class="policy-line-number">${index + 1}</span>
+                        <span class="policy-line-text">${escapeHtml(line || ' ')}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function parseLogField(message, field) {
+            if (!message) return '';
+            const match = String(message).match(new RegExp(`${field}:\\s*([^|]+)`));
+            return match ? match[1].trim() : '';
         }
 
         // Format authorization messages for better readability
@@ -5311,6 +5513,7 @@ principalPolicy:
             const autoRefreshCheckbox = document.getElementById('auto-refresh-logs');
             const refreshBtn = document.getElementById('refresh-cerbos-logs');
             const clearBtn = document.getElementById('clear-cerbos-logs');
+            const logLimit = document.getElementById('cerbos-log-limit');
             
             if (refreshBtn) {
                 refreshBtn.addEventListener('click', loadCerbosLogs);
@@ -5318,7 +5521,16 @@ principalPolicy:
             
             if (clearBtn) {
                 clearBtn.addEventListener('click', () => {
+                    cerbosLogsCache = [];
                     document.getElementById('cerbos-logs-output').innerHTML = '<div class="policy-info">Logs cleared. Click "Refresh Logs" to reload.</div>';
+                });
+            }
+
+            if (logLimit) {
+                logLimit.addEventListener('change', () => {
+                    if (cerbosLogsCache.length) {
+                        displayCerbosLogs(cerbosLogsCache);
+                    }
                 });
             }
             
