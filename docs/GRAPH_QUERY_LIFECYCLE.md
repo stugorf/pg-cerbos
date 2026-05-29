@@ -12,14 +12,14 @@ The local demo routes query languages to backends:
 |---|---|---|
 | `cypher` | PuppyGraph | Existing openCypher path over Postgres-backed PuppyGraph mapping |
 | `gremlin` | PuppyGraph | Existing Gremlin path over the same PuppyGraph mapping |
-| `gql` | Neo4j | Neo4j adapter demonstration using GQL-compatible Cypher syntax |
+| `gql` | Neo4j | Neo4j adapter demonstration with ISO GQL parser validation |
 | `sparql` | Apache Jena Fuseki | RDF adapter demonstration over synced AML triples |
 
 Postgres `demo_data.aml` remains the source of truth. PuppyGraph reads those tables through its schema mapping, while the `graph-data-sync` Compose job refreshes Neo4j nodes/relationships and Fuseki RDF triples from the same tables so comparable graph questions can be run across routes.
 
 Product implication: policies can express graph-aware controls, not just "can this user query the graph?" Controls can differentiate junior analysts, senior analysts, managers, teams, regions, clearance levels, sensitive node types, sensitive relationship types, and high-risk query filters.
 
-Technical implication: the enforcement point is in FastAPI before execution. Every graph query first resolves the selected route, retrieves that route's schema for validation and NLI, passes through the normalized analyzer boundary, then goes to Cerbos. Production deployments should set `GRAPH_QUERY_ANALYZER_URL` to a parser service backed by mature language parsers; the local Cypher analyzer remains a development fallback and is still regex-based.
+Technical implication: the enforcement point is in FastAPI before execution. Every graph query first resolves the selected route, retrieves that route's schema for validation and NLI, passes through the normalized analyzer boundary, then goes to Cerbos. `GRAPH_QUERY_ANALYZER_URL` must point to a running analyzer service; if the sidecar is unavailable, misconfigured, incomplete, or returns malformed output, the backend rejects the request before authorization or execution.
 
 ## Lifecycle Diagram
 
@@ -104,13 +104,11 @@ Product wording should therefore use "roles and attributes" unless a separate gr
 
 For graph query requests, the backend calls `analyze_graph_query(...)` from `policy-registry/backend/graph_query_analyzer.py`. That module is the stable boundary between API request handling and authorization metadata.
 
-When `GRAPH_QUERY_ANALYZER_URL` is set, the backend sends queries to a remote analyzer service at `POST /analyze`. This repository includes a Docker Compose-managed `graph-query-analyzer` service built with Java 21 and Maven inside Docker, so host Java/Maven installs are not required. That service currently implements the normalized analyzer contract and is structured for production-grade parsers such as Neo4j/openCypher tooling for Cypher and Apache Jena ARQ for SPARQL. When the URL is not set, only Cypher is analyzed locally using the current regex-based extractor.
+The backend sends queries to the remote analyzer service at `POST /analyze`. This repository includes a Docker Compose-managed `graph-query-analyzer` service built with Java 21 and Maven inside Docker, so host Java/Maven installs are not required. The sidecar validates each language with parser tooling before extracting authorization metadata: Neo4j/openCypher tooling for Cypher, TinkerPop traversal Bytecode for Gremlin, a vendored ANTLR ISO GQL grammar for GQL, and Apache Jena ARQ for SPARQL.
 
 Analyzer failures are fail-closed. If analysis is unavailable, incomplete, malformed, or returns an error, the backend rejects the request before Cerbos evaluation and before graph database execution.
 
-For local Cypher analysis, the backend still calls `parse_cypher_query(query)` and `extract_resource_attributes(query)` from `policy-registry/backend/cypher_parser.py`.
-
-The parser extracts structural metadata:
+The analyzer extracts structural metadata:
 
 | Metadata | Example source | Example value |
 |---|---|---|
@@ -140,7 +138,7 @@ The parser also extracts policy-relevant filters:
 | `customer_team` | `WHERE c.team = 'Team A'` or `{team: 'Team A'}` | Team-based ABAC |
 | `customer_region` | `WHERE c.region = 'US'` or `{region: 'US'}` | Region-based ABAC |
 
-Important limitation: the local fallback parser uses regular expressions. It is sufficient for common demo and controlled query shapes, but it does not provide full Cypher semantic analysis. Complex expressions, aliases, computed predicates, nested conditions, or alternative syntax may not produce the expected authorization metadata. Production use should configure the remote analyzer service.
+Important limitation: parser validation and metadata extraction are separate steps. The sidecar rejects syntax that the configured parser does not accept. After parser validation, it extracts policy metadata for the demo policy surface: labels, relationship types, traversal depth, limits, write/read classification, SPARQL predicates, and selected filter values. Complex semantic analysis, alias resolution, and computed predicate interpretation are still intentionally narrow and should be expanded before production use.
 
 ## Cerbos Request Shape
 
@@ -196,11 +194,32 @@ After authorization, execution is dispatched through `policy-registry/backend/gr
 | Adapter | Enabled by | Languages |
 |---|---|---|
 | PuppyGraph | language route `cypher`, `gremlin` | openCypher and Gremlin over PuppyGraph |
-| Neo4j | language route `gql` | GQL-compatible Cypher over the Neo4j Bolt driver |
+| Neo4j | language route `gql` | GQL route over the Neo4j Bolt driver |
 | Fuseki | language route `sparql` | SPARQL over Apache Jena Fuseki |
 | Unsupported | any unmapped language | Returns `501` until implemented |
 
 Neo4j settings are provided with `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, and optional `NEO4J_DATABASE`. Fuseki settings are provided with `FUSEKI_URL` and `FUSEKI_DATASET`.
+
+### Adapter Implementations And Language Parsing
+
+The UI language selector is the route key. The backend passes that language through schema retrieval, natural language generation, analyzer parsing, policy evaluation, and final execution. The adapter layer keeps graph database details out of the FastAPI route handlers.
+
+| Adapter | Implementation | Schema source | Parser/library basis | Result normalization |
+|---|---|---|---|---|
+| PuppyGraph | `PuppyGraphEngineAdapter` delegates `cypher` to PuppyGraph openCypher and `gremlin` to PuppyGraph Gremlin through the existing PuppyGraph client | PuppyGraph configuration and schema mapping over Postgres `demo_data.aml` tables | Cypher is validated with Neo4j/openCypher parser tooling. Gremlin is evaluated into TinkerPop traversal Bytecode and inspected from the Bytecode steps. | Uses the PuppyGraph client response shape consumed by the existing UI |
+| Neo4j | `Neo4jEngineAdapter` uses the Neo4j Bolt driver configured by `NEO4J_URI`, `NEO4J_USER`, `NEO4J_PASSWORD`, and optional `NEO4J_DATABASE` | Live Neo4j label, relationship, and property introspection from synced AML nodes and relationships | GQL is validated with a vendored ANTLR ISO GQL grammar. The Neo4j adapter executes the current demo GQL route through the Python `neo4j` driver while preserving the language-neutral analyzer contract. | Converts Neo4j nodes, relationships, paths, scalars, lists, and maps into JSON-safe rows |
+| Fuseki | `FusekiEngineAdapter` uses Apache Jena Fuseki HTTP endpoints configured by `FUSEKI_URL` and `FUSEKI_DATASET` | RDF classes, predicates, and observed property usage from the AML dataset | SPARQL is validated with Apache Jena ARQ `QueryFactory`; predicate metadata is read from the parsed query pattern. | Converts SPARQL JSON bindings into the shared `{results, columns}` response shape |
+
+Language parsing and generation are intentionally separated from execution:
+
+| Language | Parser or generator path | Implementation detail |
+|---|---|---|
+| `cypher` | Analyzer sidecar required; PuppyGraph execution | The sidecar validates with Neo4j/openCypher parser tooling before extracting policy metadata. The UI shows `cypher.opencypher_parse` then `puppygraph.execute`. |
+| `gremlin` | Analyzer sidecar required; PuppyGraph execution | The sidecar requires the script to produce TinkerPop traversal Bytecode. The UI shows `gremlin.bytecode_parse` then `puppygraph.execute`. |
+| `gql` | Analyzer sidecar required; Neo4j execution | The sidecar validates with the ISO GQL grammar. The UI shows `gql.iso_parse` then `neo4j.execute`. |
+| `sparql` | Analyzer sidecar required; Fuseki execution | The sidecar validates with Apache Jena ARQ. The UI shows `sparql.arq_parse` then `fuseki.execute`. |
+
+Implementation note: all four languages require the analyzer sidecar before Cerbos authorization. The backend intentionally rejects analyzer failures because partial analysis would weaken fail-closed enforcement.
 
 ## What Policies Can Evaluate
 
@@ -223,7 +242,7 @@ The current policy set can evaluate the following dimensions.
 
 | Dimension | Examples | Current usage |
 |---|---|---|
-| Query type | `cypher`, `gremlin`, `sparql`, `gql` | UI and analyzer contract accept all four; Cypher has local fallback analysis; other languages require the remote analyzer and execution adapters |
+| Query type | `cypher`, `gremlin`, `sparql`, `gql` | UI and analyzer contract accept all four; all languages require the analyzer sidecar before authorization and execution |
 | Analysis version | `graph-query-analysis/v1` | Allows policy and backend compatibility checks |
 | Read/write classification | `is_read_only`, `has_write_operation` | Writes are denied by policy by default |
 | Node labels | `Customer`, `Account`, `Transaction`, `Alert`, `Case`, `SAR` | Used to deny sensitive nodes and SAR access |
@@ -694,7 +713,6 @@ Use these files when changing or reviewing behavior:
 | `policy-registry/backend/app.py` | Request endpoints, user context loading, Cerbos call, execution |
 | `policy-registry/backend/graph_engine_adapter.py` | Execution adapter boundary for PuppyGraph, Neo4j, and future engines |
 | `policy-registry/backend/graph_query_analyzer.py` | Analyzer boundary, remote sidecar client, normalized contract, fail-closed behavior |
-| `policy-registry/backend/cypher_parser.py` | Local development fallback for Cypher metadata extraction |
 | `graph-data-sync/` | Startup sync from Postgres AML tables into Neo4j and Fuseki |
 | `graph-query-analyzer/` | Dockerized Java analyzer sidecar exposing `POST /analyze` |
 | `policy-registry/backend/cerbos_client.py` | Cerbos principal/resource construction |
@@ -710,7 +728,7 @@ The strongest current guarantees are role, depth, label, relationship type, team
 
 Areas to improve for production hardening:
 
-1. Implement the remote JVM analyzer service with Neo4j/openCypher and Apache Jena ARQ parsers.
+1. Expand analyzer semantic extraction beyond the current demo policy surface, especially aliases, computed predicates, nested expressions, and path semantics.
 2. Add explicit tests for every policy rule and every resource attribute extractor.
 3. Add a formal group membership model if product requirements distinguish groups from roles and attributes.
 4. Decide whether the product needs post-query filtering or redaction in addition to pre-query authorization.

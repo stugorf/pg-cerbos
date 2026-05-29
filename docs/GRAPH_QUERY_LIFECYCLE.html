@@ -69,11 +69,25 @@
 
     pre {
       overflow: auto;
-      background: #0f172a;
-      color: #e2e8f0;
+      background: #ffffff;
+      color: #111827;
+      border: 1px solid var(--line);
       border-radius: 8px;
       padding: 16px;
       font-size: 13px;
+      line-height: 1.55;
+      tab-size: 2;
+      white-space: pre;
+    }
+
+    pre code {
+      display: block;
+      background: transparent;
+      border: 0;
+      border-radius: 0;
+      color: #111827;
+      padding: 0;
+      white-space: inherit;
     }
 
     a {
@@ -280,6 +294,39 @@
       font-size: 13px;
     }
 
+    .adapter-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 12px;
+      margin: 16px 0 24px;
+    }
+
+    .adapter-card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-top: 4px solid var(--blue);
+      border-radius: 8px;
+      padding: 14px;
+      min-width: 0;
+    }
+
+    .adapter-card:nth-child(2) {
+      border-top-color: var(--green);
+    }
+
+    .adapter-card:nth-child(3) {
+      border-top-color: var(--violet);
+    }
+
+    .adapter-card h3 {
+      margin-top: 0;
+    }
+
+    .adapter-card ul {
+      margin: 10px 0 0;
+      padding-left: 18px;
+    }
+
     @media (max-width: 760px) {
       main {
         padding: 20px 14px 36px;
@@ -361,7 +408,7 @@
             </div>
             <div class="node route-card">
               <strong>gql -> Neo4j</strong>
-              <span>GQL-compatible Cypher through Bolt</span>
+              <span>GQL route through Bolt</span>
             </div>
             <div class="node route-card">
               <strong>sparql -> Fuseki</strong>
@@ -409,12 +456,89 @@
           <tr>
             <td><code>gql</code></td>
             <td>Neo4j</td>
-            <td>Neo4j adapter demonstration using GQL-compatible Cypher syntax.</td>
+            <td>Neo4j adapter demonstration with ISO GQL parser validation.</td>
           </tr>
           <tr>
             <td><code>sparql</code></td>
             <td>Apache Jena Fuseki</td>
             <td>RDF adapter demonstration over synced AML triples.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>Adapter Implementations And Language Parsing</h2>
+      <p>
+        The UI language selector is the route key. The backend passes that language through schema retrieval,
+        natural language generation, analyzer parsing, policy evaluation, and final execution. The adapter layer
+        keeps graph database details out of the FastAPI route handlers.
+      </p>
+
+      <div class="adapter-grid">
+        <article class="adapter-card">
+          <h3>PuppyGraph Adapter</h3>
+          <p><code>PuppyGraphEngineAdapter</code> handles <code>cypher</code> and <code>gremlin</code>.</p>
+          <ul>
+            <li>Uses the existing PuppyGraph client and the Postgres-backed AML schema mapping.</li>
+            <li><code>cypher</code> executes through PuppyGraph's openCypher route.</li>
+            <li><code>gremlin</code> executes through PuppyGraph's Gremlin route.</li>
+            <li>Schema is read from the PuppyGraph configuration so NLI and validation see the mapped labels and edges.</li>
+            <li>Parser/library basis: Cypher is validated with Neo4j/openCypher parser tooling; Gremlin scripts must produce TinkerPop traversal Bytecode.</li>
+          </ul>
+        </article>
+        <article class="adapter-card">
+          <h3>Neo4j Adapter</h3>
+          <p><code>Neo4jEngineAdapter</code> handles <code>gql</code> for the Neo4j demo route.</p>
+          <ul>
+            <li>Uses the Neo4j Bolt driver configured by <code>NEO4J_URI</code>, <code>NEO4J_USER</code>, <code>NEO4J_PASSWORD</code>, and optional <code>NEO4J_DATABASE</code>.</li>
+            <li>Executes the selected GQL route against synced AML nodes and relationships.</li>
+            <li>Discovers labels, relationship types, and properties from Neo4j for schema-aware NLI and validation.</li>
+            <li>Normalizes Neo4j nodes, relationships, paths, scalars, lists, and maps into JSON-safe result rows.</li>
+            <li>Parser/library basis: GQL is validated with a vendored ANTLR ISO GQL grammar; execution and graph-value normalization use the Python <code>neo4j</code> driver.</li>
+          </ul>
+        </article>
+        <article class="adapter-card">
+          <h3>Fuseki Adapter</h3>
+          <p><code>FusekiEngineAdapter</code> handles <code>sparql</code> for the RDF route.</p>
+          <ul>
+            <li>Uses Apache Jena Fuseki over HTTP with <code>FUSEKI_URL</code> and <code>FUSEKI_DATASET</code>.</li>
+            <li>Executes SPARQL <code>SELECT</code> queries against synced AML RDF triples.</li>
+            <li>Builds a schema view from RDF classes, predicates, and observed property usage.</li>
+            <li>Converts SPARQL JSON bindings into the shared <code>{ results, columns }</code> response shape.</li>
+            <li>Parser/library basis: SPARQL is validated with Apache Jena ARQ <code>QueryFactory</code>; predicate metadata is read from the parsed query pattern.</li>
+          </ul>
+        </article>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Language</th>
+            <th>Parser or generator path</th>
+            <th>Implementation detail</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>cypher</code></td>
+            <td>Analyzer sidecar required; PuppyGraph execution.</td>
+            <td>The sidecar validates with Neo4j/openCypher parser tooling. The UI shows <code>cypher.opencypher_parse</code> then <code>puppygraph.execute</code>.</td>
+          </tr>
+          <tr>
+            <td><code>gremlin</code></td>
+            <td>Analyzer sidecar required; PuppyGraph execution.</td>
+            <td>The sidecar requires the script to produce TinkerPop traversal Bytecode. The UI shows <code>gremlin.bytecode_parse</code> then <code>puppygraph.execute</code>.</td>
+          </tr>
+          <tr>
+            <td><code>gql</code></td>
+            <td>Analyzer sidecar required; Neo4j execution.</td>
+            <td>The sidecar validates with the ISO GQL grammar. The UI shows <code>gql.iso_parse</code> then <code>neo4j.execute</code>.</td>
+          </tr>
+          <tr>
+            <td><code>sparql</code></td>
+            <td>Analyzer sidecar required; Fuseki execution.</td>
+            <td>The sidecar validates with Apache Jena ARQ. The UI shows <code>sparql.arq_parse</code> then <code>fuseki.execute</code>.</td>
           </tr>
         </tbody>
       </table>
@@ -570,7 +694,7 @@
       <p>
         For graph query requests, the backend calls <code>analyze_graph_query(...)</code>. When
         <code>GRAPH_QUERY_ANALYZER_URL</code> is configured, the backend sends the query to the analyzer sidecar.
-        Without the sidecar, local fallback analysis is available only for Cypher.
+        Without the sidecar, graph query execution is rejected with an actionable analyzer error.
       </p>
       <div class="callout">
         Analyzer failures are fail-closed. If analysis is unavailable, incomplete, malformed, or returns an error,
@@ -672,7 +796,7 @@
           <div class="lane">
             <div class="lane-title">Queryable graphs</div>
             <div class="node"><strong>PuppyGraph</strong><span>Cypher and Gremlin</span></div>
-            <div class="node"><strong>Neo4j</strong><span>GQL-compatible Cypher</span></div>
+            <div class="node"><strong>Neo4j</strong><span>GQL route</span></div>
             <div class="node"><strong>Fuseki</strong><span>SPARQL</span></div>
           </div>
         </div>

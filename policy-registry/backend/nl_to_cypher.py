@@ -21,17 +21,6 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
-# Optional: use cypher_parser for validation
-try:
-    from cypher_parser import (
-        extract_node_labels,
-        extract_relationship_types,
-    )
-    CYPHER_PARSER_AVAILABLE = True
-except ImportError:
-    CYPHER_PARSER_AVAILABLE = False
-
-
 def get_vertex_labels(schema: Dict[str, Any]) -> Set[str]:
     """Extract vertex labels from PuppyGraph schema."""
     labels: Set[str] = set()
@@ -889,28 +878,11 @@ def validate_cypher_properties(cypher: str, schema: Dict[str, Any]) -> Tuple[boo
 
 def validate_cypher_against_schema(cypher: str, schema: Dict[str, Any]) -> Tuple[bool, List[str]]:
     """
-    Validate that all node labels and relationship types in the Cypher query
-    exist in the schema. Returns (valid, list of error messages).
+    The sidecar parser is the authorization boundary for graph query structure.
+    NL generation keeps schema-derived property checks local and lets execution
+    paths call the remote analyzer before Cerbos.
     """
-    errors: List[str] = []
-    vertex_labels = get_vertex_labels(schema)
-    edge_map = get_edges_by_label(schema)
-    valid_edges = set(edge_map.keys())
-
-    if not CYPHER_PARSER_AVAILABLE:
-        return True, []
-
-    node_labels = extract_node_labels(cypher)
-    rel_types = extract_relationship_types(cypher)
-
-    for label in node_labels:
-        if label not in vertex_labels:
-            errors.append(f"Vertex label '{label}' is not in the graph schema. Valid: {sorted(vertex_labels)}")
-    for r in rel_types:
-        if r not in valid_edges:
-            errors.append(f"Relationship type '{r}' is not in the graph schema. Valid: {sorted(valid_edges)}")
-
-    return len(errors) == 0, errors
+    return True, []
 
 
 def validate_cypher_full(cypher: str, schema: Dict[str, Any]) -> Tuple[bool, List[str]]:

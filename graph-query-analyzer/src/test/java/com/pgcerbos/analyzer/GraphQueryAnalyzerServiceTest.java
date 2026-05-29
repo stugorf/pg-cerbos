@@ -51,7 +51,39 @@ class GraphQueryAnalyzerServiceTest {
     }
 
     @Test
-    void returnsContractForSparqlButFlagsSecurityWarning() {
+    void parsesGremlinIntoBytecodeMetadata() {
+        Map<String, Object> analysis = service.analyze(new AnalyzeRequest(
+                "gremlin",
+                null,
+                "g.V().hasLabel('Customer').out('OWNS').limit(10)",
+                Map.of(),
+                "read"
+        ));
+
+        assertThat(analysis.get("language")).isEqualTo("gremlin");
+        assertThat(analysis.get("statement_type")).isEqualTo("read");
+        assertThat(asList(analysis.get("accessed_node_labels"))).containsExactly("Customer");
+        assertThat(asList(analysis.get("accessed_edge_types"))).containsExactly("OWNS");
+        assertThat(analysis.get("limit")).isEqualTo(10);
+    }
+
+    @Test
+    void rejectsGremlinThatDoesNotProduceTraversalBytecode() {
+        assertThatThrownBy(() -> service.analyze(new AnalyzeRequest(
+                "gremlin",
+                null,
+                "1 + 1",
+                Map.of(),
+                "read"
+        )))
+                .isInstanceOf(GraphQueryAnalysisException.class)
+                .hasMessageContaining("Gremlin parse failed")
+                .extracting("status")
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void parsesSparqlWithJenaArq() {
         Map<String, Object> analysis = service.analyze(new AnalyzeRequest(
                 "sparql",
                 null,
@@ -64,6 +96,52 @@ class GraphQueryAnalyzerServiceTest {
         assertThat(analysis.get("statement_type")).isEqualTo("read");
         assertThat(analysis.get("limit")).isEqualTo(10);
         assertThat(asList(analysis.get("accessed_edge_types"))).contains("<urn:knows>");
+    }
+
+    @Test
+    void rejectsInvalidSparql() {
+        assertThatThrownBy(() -> service.analyze(new AnalyzeRequest(
+                "sparql",
+                null,
+                "SELECT WHERE { ?s ?p }",
+                Map.of(),
+                "read"
+        )))
+                .isInstanceOf(GraphQueryAnalysisException.class)
+                .hasMessageContaining("SPARQL parse failed")
+                .extracting("status")
+                .isEqualTo(HttpStatus.BAD_REQUEST);
+    }
+
+    @Test
+    void parsesGqlWithIsoGrammar() {
+        Map<String, Object> analysis = service.analyze(new AnalyzeRequest(
+                "gql",
+                null,
+                "MATCH (c:Customer) RETURN c LIMIT 10",
+                Map.of(),
+                "read"
+        ));
+
+        assertThat(analysis.get("language")).isEqualTo("gql");
+        assertThat(analysis.get("statement_type")).isEqualTo("read");
+        assertThat(asList(analysis.get("accessed_node_labels"))).containsExactly("Customer");
+        assertThat(analysis.get("limit")).isEqualTo(10);
+    }
+
+    @Test
+    void rejectsInvalidGql() {
+        assertThatThrownBy(() -> service.analyze(new AnalyzeRequest(
+                "gql",
+                null,
+                "MATCH (c:Customer RETURN c",
+                Map.of(),
+                "read"
+        )))
+                .isInstanceOf(GraphQueryAnalysisException.class)
+                .hasMessageContaining("GQL parse failed")
+                .extracting("status")
+                .isEqualTo(HttpStatus.BAD_REQUEST);
     }
 
     @Test
