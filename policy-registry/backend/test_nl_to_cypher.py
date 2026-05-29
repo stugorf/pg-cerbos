@@ -8,6 +8,7 @@ pipeline tests that require valid Cypher are skipped when OPENAI_API_KEY is not 
 import json
 import os
 import pytest
+import nl_to_cypher as nl_module
 
 # Skip pipeline tests that need LLM when OPENAI_API_KEY is not set
 requires_llm = pytest.mark.skipif(
@@ -197,6 +198,60 @@ class TestNlToCypherPipeline:
             if key is not None:
                 os.environ["OPENAI_API_KEY"] = key
 
+    def test_empty_llm_response_does_not_use_rule_based_fallback(self, schema, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        monkeypatch.setattr(nl_module, "OPENAI_AVAILABLE", True)
+        monkeypatch.setattr(nl_module, "_request_graph_query_from_llm", lambda **kwargs: "")
+        monkeypatch.setattr(nl_module, "_review_generated_query_with_llm", lambda **kwargs: "Return a valid Cypher query.")
+
+        result = nl_to_cypher("Show me customers", schema)
+
+        assert result["valid"] is False
+        assert result["source"] == "llm"
+        assert result["cypher"] == ""
+        assert "LLM did not return a graph query" in str(result.get("validation_errors", []))
+
+    def test_invalid_llm_response_does_not_use_rule_based_fallback(self, schema, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        monkeypatch.setattr(nl_module, "OPENAI_AVAILABLE", True)
+        monkeypatch.setattr(
+            nl_module,
+            "_request_graph_query_from_llm",
+            lambda **kwargs: "MATCH (c:Customer) RETURN c.not_a_schema_property LIMIT 10",
+        )
+        monkeypatch.setattr(nl_module, "_review_generated_query_with_llm", lambda **kwargs: "Use only schema properties.")
+
+        result = nl_to_cypher("Show me customers", schema)
+
+        assert result["valid"] is False
+        assert result["source"] == "llm"
+        assert "not_a_schema_property" in result["cypher"]
+        assert result.get("validation_errors")
+
+    def test_retries_invalid_cypher_with_review_feedback(self, schema, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        monkeypatch.setattr(nl_module, "OPENAI_AVAILABLE", True)
+        responses = iter([
+            "MATCH (c:Customer) RETURN c.not_a_schema_property LIMIT 10",
+            "MATCH (c:Customer) RETURN c.name LIMIT 10",
+        ])
+        reviews = []
+
+        def fake_request(**kwargs):
+            if kwargs.get("review"):
+                reviews.append(kwargs["review"])
+            return next(responses)
+
+        monkeypatch.setattr(nl_module, "_request_graph_query_from_llm", fake_request)
+        monkeypatch.setattr(nl_module, "_review_generated_query_with_llm", lambda **kwargs: "Use c.name instead.")
+
+        result = nl_to_cypher("Show me customers", schema)
+
+        assert result["valid"] is True
+        assert result["source"] == "llm_retry_1"
+        assert result["cypher"] == "MATCH (c:Customer) RETURN c.name LIMIT 10"
+        assert reviews == ["Use c.name instead."]
+
     @requires_llm
     def test_customers_query(self, schema):
         result = nl_to_cypher("Show me customers", schema)
@@ -285,7 +340,14 @@ class TestNormalizeCypher:
 
 
 class TestNLToGraphQuery:
-    def test_generates_gremlin_for_selected_route(self, schema):
+    def test_generates_gremlin_for_selected_route(self, schema, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        monkeypatch.setattr(nl_module, "OPENAI_AVAILABLE", True)
+        monkeypatch.setattr(
+            nl_module,
+            "_request_graph_query_from_llm",
+            lambda **kwargs: "g.V().hasLabel('Customer').out('OWNS').limit(25).valueMap(true)",
+        )
         result = nl_to_graph_query("Customers who own accounts", schema, "gremlin")
 
         assert result["valid"] is True
@@ -293,10 +355,26 @@ class TestNLToGraphQuery:
         assert result["query"].startswith("g.V()")
         assert "OWNS" in result["query"]
 
-    def test_generates_sparql_for_selected_route(self, schema):
+    def test_generates_sparql_for_selected_route(self, schema, monkeypatch):
+        monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+        monkeypatch.setattr(nl_module, "OPENAI_AVAILABLE", True)
+        monkeypatch.setattr(
+            nl_module,
+            "_request_graph_query_from_llm",
+            lambda **kwargs: "PREFIX aml: <urn:aml:>\nSELECT * WHERE { ?customer a aml:Customer . ?customer aml:OWNS ?account . } LIMIT 25",
+        )
         result = nl_to_graph_query("Customers who own accounts", schema, "sparql")
 
         assert result["valid"] is True
         assert result["query_type"] == "sparql"
         assert "PREFIX aml:" in result["query"]
         assert "aml:OWNS" in result["query"]
+
+    def test_gremlin_requires_llm_key(self, schema, monkeypatch):
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+        result = nl_to_graph_query("Customers who own accounts", schema, "gremlin")
+
+        assert result["valid"] is False
+        assert result["source"] == "llm"
+        assert "OPENAI_API_KEY" in str(result["validation_errors"])
