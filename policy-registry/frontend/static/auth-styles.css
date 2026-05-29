@@ -594,23 +594,32 @@ body {
 
 .dashboard-header {
     flex: 0 0 auto;
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: auto minmax(260px, 1fr) auto;
+    grid-template-areas:
+        "brand title version"
+        "brand user user";
     align-items: center;
     margin-bottom: 0;
-    padding: 22px 24px;
+    padding: 14px 24px;
     background: #f8fafc;
     border-bottom: 1px solid #d8dee8;
     border-radius: 0;
     box-shadow: none;
-    flex-wrap: wrap;
-    gap: 15px;
+    column-gap: 18px;
+    row-gap: 8px;
+}
+
+.dashboard-header .ek-logo-header {
+    grid-area: brand;
 }
 
 .dashboard-header h1 {
+    grid-area: title;
+    justify-self: end;
     color: #333;
     margin: 0;
-    font-size: 28px;
+    font-size: 26px;
     font-weight: 600;
 }
 
@@ -811,26 +820,74 @@ body {
 }
 
 .user-info {
-    display: flex;
+    grid-area: user;
+    display: grid;
+    grid-template-columns: auto auto minmax(220px, 1fr);
+    grid-template-areas:
+        "email logout spacer"
+        "policy roles spacer";
     align-items: center;
-    gap: 15px;
-    flex-wrap: wrap;
+    justify-content: start;
+    gap: 8px 10px;
 }
 
 .user-info span {
-    padding: 8px 16px;
+    padding: 7px 14px;
     background: #f8f9fa;
     border-radius: 20px;
-    font-size: 14px;
+    font-size: 13px;
     color: #555;
     border: 1px solid #e1e5e9;
 }
 
+#user-email {
+    grid-area: email;
+}
+
+#user-roles {
+    grid-area: roles;
+}
+
+#logout-btn {
+    grid-area: logout;
+    min-height: 34px;
+    padding: 7px 16px;
+}
+
+.policy-user-control {
+    grid-area: policy;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 10px;
+    background: #eef2ff;
+    border: 1px solid #c7d2fe;
+    border-radius: 20px;
+    color: #374151;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.policy-user-control select {
+    width: min(520px, 46vw);
+    min-width: 260px;
+    max-width: 520px;
+    padding: 5px 8px;
+    border: 1px solid #cbd5e1;
+    border-radius: 16px;
+    background: #ffffff;
+    color: #111827;
+    font-size: 13px;
+    font-weight: 600;
+}
+
 .version-info {
+    grid-area: version;
     display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 5px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 10px;
 }
 
 .version-badge {
@@ -845,7 +902,7 @@ body {
 }
 
 .build-info {
-    font-size: 10px;
+    font-size: 11px;
     color: #6c757d;
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
 }
@@ -1523,12 +1580,14 @@ body {
     }
     
     .dashboard-header {
+        display: flex;
         flex-direction: column;
         gap: 16px;
         text-align: center;
     }
     
     .user-info {
+        display: flex;
         flex-direction: column;
         gap: 8px;
     }
@@ -2266,6 +2325,7 @@ body {
     }
 
     .dashboard-header {
+        display: flex;
         flex-direction: column;
         align-items: stretch;
         text-align: center;
@@ -2693,15 +2753,18 @@ body {
     max-width: 1180px;
     max-height: 88vh;
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
 }
 
 .cerbos-log-detail-body {
+    flex: 1 1 auto;
+    min-height: 0;
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 16px;
     padding: 18px;
-    min-height: 520px;
-    max-height: calc(88vh - 78px);
+    overflow: hidden;
 }
 
 .cerbos-log-policy-pane,
@@ -2736,6 +2799,7 @@ body {
 .policy-code-view,
 .log-detail-pre {
     flex: 1;
+    min-height: 0;
     overflow: auto;
     margin: 0;
     padding: 12px 0;
@@ -2744,6 +2808,17 @@ body {
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
     font-size: 12px;
     line-height: 1.55;
+}
+
+.cerbos-log-detail-modal .modal-footer {
+    flex: 0 0 auto;
+    padding: 12px 18px;
+    background: #ffffff;
+    border-top: 1px solid #d8dee9;
+}
+
+.cerbos-log-detail-modal .modal-footer .btn {
+    min-width: 96px;
 }
 
 .log-detail-pre {
