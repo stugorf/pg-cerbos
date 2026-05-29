@@ -1096,6 +1096,70 @@ LIMIT 25`
             return /cerbos|authori[sz]ation|403|not authorized|denied/i.test(detail || '');
         }
 
+        function getSequenceMetric(metrics, key) {
+            const value = Number(metrics?.[key]);
+            return Number.isFinite(value) && value > 0 ? value : 0;
+        }
+
+        function sumSequenceDurations(steps) {
+            return steps.reduce((total, step) => total + Math.max(0, Number(step.durationMs) || 0), 0);
+        }
+
+        function pushTimedSequenceStep(steps, cursor, name, status, durationMs, detail) {
+            const safeDuration = Math.max(0, Number(durationMs) || 0);
+            const end = cursor + safeDuration;
+            steps.push({
+                name,
+                status,
+                start: cursor,
+                end,
+                durationMs: safeDuration,
+                detail
+            });
+            return end;
+        }
+
+        function appendRemainderAndMetricsSteps(steps, cursor, { startTime, endTime, status, metrics, detail }) {
+            const wallMs = Math.max(0, endTime - startTime);
+            const backendMs = getSequenceMetric(metrics, 'backend_ms');
+            let measuredMs = sumSequenceDurations(steps);
+            const backendRemainderMs = backendMs > 0 ? Math.max(0, backendMs - measuredMs) : 0;
+            if (backendRemainderMs >= 1) {
+                cursor = pushTimedSequenceStep(
+                    steps,
+                    cursor,
+                    'backend.finalize',
+                    status,
+                    backendRemainderMs,
+                    'response assembly, logging, and backend overhead'
+                );
+                measuredMs = sumSequenceDurations(steps);
+            }
+
+            const targetTotalMs = Math.max(wallMs, backendMs || 0, measuredMs);
+            const clientMs = Math.max(0, targetTotalMs - measuredMs);
+            if (clientMs >= 1) {
+                cursor = pushTimedSequenceStep(
+                    steps,
+                    cursor,
+                    'client.round_trip',
+                    status,
+                    clientMs,
+                    'network transfer, JSON parsing, and UI update'
+                );
+            }
+
+            const totalMs = sumSequenceDurations(steps);
+            steps.push({
+                name: 'query.metrics',
+                status,
+                start: startTime,
+                end: startTime + totalMs,
+                durationMs: totalMs,
+                detail
+            });
+        }
+
         function renderSqlSequence({ startTime, endTime, status, rowCount, detail, metrics }) {
             const durationMs = endTime - startTime;
             const validationFailed = status === 'FAILED' && !metrics && /validation failed|empty sql/i.test(detail || '');
@@ -1130,43 +1194,41 @@ LIMIT 25`
             }
             const deniedByCerbos = isCerbosDenied(detail);
             const cerbosMs = metrics?.cerbos_ms ?? 0;
-            const cerbosEnd = startTime + cerbosMs;
             const executeMs = metrics?.engine_ms ?? Math.max(0, durationMs - cerbosMs);
-            const executeEnd = cerbosEnd + executeMs;
-            renderAgentSequence('sql', [
-                {
-                    name: 'query.validated',
-                    status: status === 'FAILED' ? 'ERROR' : 'OK',
-                    start: startTime,
-                    end: startTime,
-                    durationMs: 0,
-                    detail: status === 'FAILED' ? 'validation failed' : 'validated'
-                },
-                {
-                    name: 'cerbos.authorize',
-                    status: deniedByCerbos ? 'ERROR' : status,
-                    start: startTime,
-                    end: cerbosEnd,
-                    durationMs: cerbosMs,
-                    detail: deniedByCerbos ? 'policy denied' : (status === 'OK' ? 'policy allowed' : 'not measured')
-                },
-                {
-                    name: 'trino.execute',
-                    status: deniedByCerbos ? 'ERROR' : status,
-                    start: cerbosEnd,
-                    end: executeEnd,
-                    durationMs: executeMs,
-                    detail: deniedByCerbos ? 'skipped' : (status === 'OK' ? 'completed' : 'failed')
-                },
-                {
-                    name: 'query.metrics',
-                    status,
-                    start: startTime,
-                    end: endTime,
-                    durationMs,
-                    detail: detail || `Overall: ${rowCount} row(s).`
-                }
-            ]);
+            const steps = [];
+            let cursor = startTime;
+            cursor = pushTimedSequenceStep(
+                steps,
+                cursor,
+                'query.validated',
+                status === 'FAILED' ? 'ERROR' : 'OK',
+                0,
+                status === 'FAILED' ? 'validation failed' : 'SQL accepted by API'
+            );
+            cursor = pushTimedSequenceStep(
+                steps,
+                cursor,
+                'cerbos.authorize',
+                deniedByCerbos ? 'ERROR' : status,
+                cerbosMs,
+                deniedByCerbos ? 'policy denied' : (status === 'OK' ? 'policy allowed' : 'not measured')
+            );
+            cursor = pushTimedSequenceStep(
+                steps,
+                cursor,
+                'trino.execute',
+                deniedByCerbos ? 'SKIPPED' : status,
+                deniedByCerbos ? 0 : executeMs,
+                deniedByCerbos ? 'skipped because policy denied' : (status === 'OK' ? 'completed on Trino' : 'failed')
+            );
+            appendRemainderAndMetricsSteps(steps, cursor, {
+                startTime,
+                endTime,
+                status,
+                metrics,
+                detail: detail || `Overall: ${rowCount} row(s).`
+            });
+            renderAgentSequence('sql', steps);
         }
 
         function renderGraphSequence({ startTime, endTime, status, rowCount, queryType, detail, backendMs, metrics, route }) {
@@ -1213,151 +1275,202 @@ LIMIT 25`
             }
             const deniedByCerbos = isCerbosDenied(detail);
             const analysisFailed = status === 'FAILED' && !metrics && /analyzer|analysis|parse/i.test(detail || '');
-            const validationEnd = startTime;
+            const schemaMs = getSequenceMetric(metrics, 'schema_ms');
             const analysisMs = metrics?.analysis_ms ?? 0;
             const cerbosMs = metrics?.cerbos_ms ?? 0;
-            const analysisEnd = validationEnd + analysisMs;
-            const cerbosEnd = analysisEnd + cerbosMs;
-            const executeMs = metrics?.engine_ms ?? backendMs ?? Math.max(0, durationMs - analysisMs - cerbosMs);
-            const executeEnd = cerbosEnd + executeMs;
-            renderAgentSequence('graph', [
-                {
-                    name: 'query.validated',
-                    status: analysisFailed ? 'OK' : (status === 'FAILED' ? 'ERROR' : 'OK'),
-                    start: startTime,
-                    end: validationEnd,
-                    durationMs: 0,
-                    detail: `${queryType} validated`
-                },
-                {
-                    name: parseStepName,
-                    status: analysisFailed ? 'ERROR' : (status === 'FAILED' && !metrics ? 'SKIPPED' : 'OK'),
-                    start: validationEnd,
-                    end: analysisEnd,
-                    durationMs: analysisMs,
-                    detail: analysisFailed
-                        ? 'parser rejected the graph query'
-                        : `parsed with ${getGraphParserLabel(queryType)}`
-                },
-                {
-                    name: 'cerbos.authorize',
-                    status: analysisFailed ? 'SKIPPED' : (deniedByCerbos ? 'ERROR' : status),
-                    start: analysisEnd,
-                    end: cerbosEnd,
-                    durationMs: cerbosMs,
-                    detail: analysisFailed ? 'skipped because parsing failed' : (deniedByCerbos ? 'policy denied' : (status === 'OK' ? 'policy allowed' : 'not measured'))
-                },
-                {
-                    name: graphRoute.executeStep,
-                    status: analysisFailed ? 'SKIPPED' : (deniedByCerbos ? 'ERROR' : status),
-                    start: cerbosEnd,
-                    end: executeEnd,
-                    durationMs: executeMs,
-                    detail: analysisFailed ? 'skipped because parsing failed' : (deniedByCerbos ? 'skipped' : (status === 'OK' ? `completed on ${graphRoute.database}` : 'failed'))
-                },
-                {
-                    name: 'query.metrics',
-                    status,
-                    start: startTime,
-                    end: endTime,
-                    durationMs,
-                    detail: detail || `Overall: ${rowCount} row(s).`
-                }
-            ]);
+            const executeMs = metrics?.engine_ms ?? backendMs ?? Math.max(0, durationMs - schemaMs - analysisMs - cerbosMs);
+            const steps = [];
+            let cursor = startTime;
+            cursor = pushTimedSequenceStep(
+                steps,
+                cursor,
+                'schema.fetch',
+                status === 'FAILED' && !metrics ? 'ERROR' : 'OK',
+                schemaMs,
+                `${graphRoute.database} schema loaded for ${getGraphLanguageLabel(queryType)}`
+            );
+            cursor = pushTimedSequenceStep(
+                steps,
+                cursor,
+                'query.validated',
+                analysisFailed ? 'OK' : (status === 'FAILED' && !metrics ? 'ERROR' : 'OK'),
+                0,
+                `${getGraphLanguageLabel(queryType)} query accepted by API`
+            );
+            cursor = pushTimedSequenceStep(
+                steps,
+                cursor,
+                parseStepName,
+                analysisFailed ? 'ERROR' : (status === 'FAILED' && !metrics ? 'SKIPPED' : 'OK'),
+                analysisFailed ? Math.max(analysisMs, 0) : analysisMs,
+                analysisFailed
+                    ? 'parser rejected the graph query'
+                    : `parsed with ${getGraphParserLabel(queryType)}`
+            );
+            cursor = pushTimedSequenceStep(
+                steps,
+                cursor,
+                'cerbos.authorize',
+                analysisFailed ? 'SKIPPED' : (deniedByCerbos ? 'ERROR' : status),
+                analysisFailed ? 0 : cerbosMs,
+                analysisFailed ? 'skipped because parsing failed' : (deniedByCerbos ? 'policy denied' : (status === 'OK' ? 'policy allowed' : 'not measured'))
+            );
+            cursor = pushTimedSequenceStep(
+                steps,
+                cursor,
+                graphRoute.executeStep,
+                analysisFailed || deniedByCerbos ? 'SKIPPED' : status,
+                analysisFailed || deniedByCerbos ? 0 : executeMs,
+                analysisFailed ? 'skipped because parsing failed' : (deniedByCerbos ? 'skipped because policy denied' : (status === 'OK' ? `completed on ${graphRoute.database}` : 'failed'))
+            );
+            appendRemainderAndMetricsSteps(steps, cursor, {
+                startTime,
+                endTime,
+                status,
+                metrics,
+                detail: detail || `Overall: ${rowCount} row(s).`
+            });
+            renderAgentSequence('graph', steps);
         }
 
-        function renderGraphNaturalLanguageSequence({ startTime, endTime, status, rowCount, detail, metrics, executed, queryType, route }) {
-            const durationMs = endTime - startTime;
+        function renderGraphNaturalLanguageSequence({ startTime, endTime, status, rowCount, detail, metrics, executed, queryType, route, attempts }) {
             const graphRoute = getGraphRouteForLanguage(queryType, route);
             const parseStepName = getGraphParseStepName(queryType);
-            const schemaMs = metrics?.schema_ms ?? 0;
-            const modelMs = metrics?.model_ms ?? 0;
-            const analysisMs = metrics?.analysis_ms ?? 0;
-            const cerbosMs = metrics?.cerbos_ms ?? 0;
-            const engineMs = metrics?.engine_ms ?? 0;
-            const schemaEnd = startTime + schemaMs;
-            const modelEnd = schemaEnd + modelMs;
-            const analysisEnd = modelEnd + analysisMs;
-            const cerbosEnd = analysisEnd + cerbosMs;
-            const engineEnd = cerbosEnd + engineMs;
+            const schemaMs = getSequenceMetric(metrics, 'schema_ms');
+            const modelMs = getSequenceMetric(metrics, 'model_ms');
+            const analysisMs = getSequenceMetric(metrics, 'analysis_ms');
+            const cerbosMs = getSequenceMetric(metrics, 'cerbos_ms');
+            const engineMs = getSequenceMetric(metrics, 'engine_ms');
             const parseFailed = status === 'FAILED' && /analyzer|analysis|parse/i.test(detail || '');
-            const steps = [
-                {
-                    name: 'schema.fetch',
-                    status: status === 'FAILED' ? 'ERROR' : 'OK',
-                    start: startTime,
-                    end: schemaEnd,
-                    durationMs: schemaMs,
-                    detail: 'Selected graph schema loaded'
-                },
-                {
-                    name: 'model.generate_graph_query',
-                    status: status === 'FAILED' ? 'ERROR' : 'OK',
-                    start: schemaEnd,
-                    end: modelEnd,
-                    durationMs: modelMs,
-                    detail: status === 'OK' ? 'graph query generated' : 'generation failed'
+            const generationFailed = status === 'FAILED' && !executed && /generation|validation|llm|model|graph query/i.test(detail || '');
+            const steps = [];
+            let cursor = startTime;
+            cursor = pushTimedSequenceStep(
+                steps,
+                cursor,
+                'schema.fetch',
+                status === 'FAILED' && !metrics ? 'ERROR' : 'OK',
+                schemaMs,
+                `${graphRoute.database} schema loaded for ${getGraphLanguageLabel(queryType)}`
+            );
+            const generationAttempts = Array.isArray(attempts) ? attempts : [];
+            if (generationAttempts.length) {
+                let attemptMeasuredMs = 0;
+                generationAttempts.forEach((attempt) => {
+                    const attemptNumber = Number(attempt.attempt) || generationAttempts.indexOf(attempt) + 1;
+                    const attemptMs = Math.max(0, Number(attempt.duration_ms) || 0);
+                    const reviewMs = Math.max(0, Number(attempt.review_ms) || 0);
+                    attemptMeasuredMs += attemptMs + reviewMs;
+                    cursor = pushTimedSequenceStep(
+                        steps,
+                        cursor,
+                        attemptNumber === 1 ? 'nl.llm_generate' : `nl.llm_retry_${attemptNumber - 1}`,
+                        attempt.valid ? 'OK' : 'ERROR',
+                        attemptMs,
+                        attempt.valid
+                            ? `attempt ${attemptNumber} produced a valid ${getGraphLanguageLabel(queryType)} query`
+                            : `attempt ${attemptNumber} failed validation`
+                    );
+                    if (reviewMs > 0 || attempt.reviewed) {
+                        cursor = pushTimedSequenceStep(
+                            steps,
+                            cursor,
+                            `nl.llm_review_${attemptNumber}`,
+                            attempt.reviewed ? 'OK' : 'WARNING',
+                            reviewMs,
+                            attempt.reviewed
+                                ? `reviewed attempt ${attemptNumber} failure before retry`
+                                : `review requested for attempt ${attemptNumber} but no guidance returned`
+                        );
+                    }
+                });
+                const generationRemainderMs = Math.max(0, modelMs - attemptMeasuredMs);
+                if (generationRemainderMs >= 1) {
+                    cursor = pushTimedSequenceStep(
+                        steps,
+                        cursor,
+                        'nl.generation_overhead',
+                        status,
+                        generationRemainderMs,
+                        'generation orchestration and validation overhead'
+                    );
                 }
-            ];
-
-            if (executed) {
-                steps.push(
-                    {
-                        name: parseStepName,
-                        status: parseFailed ? 'ERROR' : 'OK',
-                        start: modelEnd,
-                        end: analysisEnd,
-                        durationMs: analysisMs,
-                        detail: parseFailed ? 'parser rejected the generated graph query' : `parsed with ${getGraphParserLabel(queryType)}`
-                    },
-                    {
-                        name: 'cerbos.authorize',
-                        status: parseFailed ? 'SKIPPED' : status,
-                        start: analysisEnd,
-                        end: cerbosEnd,
-                        durationMs: cerbosMs,
-                        detail: parseFailed ? 'skipped because parsing failed' : (status === 'OK' ? 'policy allowed' : 'policy denied')
-                    },
-                    {
-                        name: graphRoute.executeStep,
-                        status: parseFailed ? 'SKIPPED' : status,
-                        start: cerbosEnd,
-                        end: engineEnd,
-                        durationMs: engineMs,
-                        detail: parseFailed ? 'skipped because parsing failed' : (status === 'OK' ? `completed on ${graphRoute.database}` : 'skipped')
-                    }
-                );
             } else {
-                steps.push(
-                    {
-                        name: parseStepName,
-                        status: 'SKIPPED',
-                        start: modelEnd,
-                        end: modelEnd,
-                        durationMs: 0,
-                        detail: status === 'OK'
-                            ? 'skipped because execution was not requested'
-                            : 'skipped because graph query generation or validation failed'
-                    },
-                    {
-                        name: graphRoute.executeStep,
-                        status: 'SKIPPED',
-                        start: modelEnd,
-                        end: modelEnd,
-                        durationMs: 0,
-                        detail: status === 'OK'
-                            ? 'skipped; generated graph query was not executed'
-                            : 'skipped because graph query generation or validation failed'
-                    }
+                cursor = pushTimedSequenceStep(
+                    steps,
+                    cursor,
+                    'nl.llm_generate',
+                    generationFailed ? 'ERROR' : (status === 'FAILED' && !executed ? 'ERROR' : 'OK'),
+                    modelMs,
+                    status === 'OK'
+                        ? 'LLM generated query with validation/retry review'
+                        : 'LLM generation, retry, or generated-query validation failed'
                 );
             }
 
-            steps.push({
-                name: 'query.metrics',
+            if (executed) {
+                cursor = pushTimedSequenceStep(
+                    steps,
+                    cursor,
+                    parseStepName,
+                    parseFailed ? 'ERROR' : 'OK',
+                    analysisMs,
+                    parseFailed ? 'parser rejected the generated graph query' : `parsed with ${getGraphParserLabel(queryType)}`
+                );
+                cursor = pushTimedSequenceStep(
+                    steps,
+                    cursor,
+                    'cerbos.authorize',
+                    parseFailed ? 'SKIPPED' : status,
+                    parseFailed ? 0 : cerbosMs,
+                    parseFailed ? 'skipped because parsing failed' : (status === 'OK' ? 'policy allowed' : 'policy denied')
+                );
+                cursor = pushTimedSequenceStep(
+                    steps,
+                    cursor,
+                    graphRoute.executeStep,
+                    parseFailed ? 'SKIPPED' : status,
+                    parseFailed ? 0 : engineMs,
+                    parseFailed ? 'skipped because parsing failed' : (status === 'OK' ? `completed on ${graphRoute.database}` : 'skipped')
+                );
+            } else {
+                cursor = pushTimedSequenceStep(
+                    steps,
+                    cursor,
+                    parseStepName,
+                    'SKIPPED',
+                    0,
+                    status === 'OK'
+                        ? 'skipped because execution was not requested'
+                        : 'skipped because graph query generation or validation failed'
+                );
+                cursor = pushTimedSequenceStep(
+                    steps,
+                    cursor,
+                    'cerbos.authorize',
+                    'SKIPPED',
+                    0,
+                    status === 'OK'
+                        ? 'skipped because execution was not requested'
+                        : 'skipped because graph query generation or validation failed'
+                );
+                cursor = pushTimedSequenceStep(
+                    steps,
+                    cursor,
+                    graphRoute.executeStep,
+                    'SKIPPED',
+                    0,
+                    status === 'OK'
+                        ? 'skipped; generated graph query was not executed'
+                        : 'skipped because graph query generation or validation failed'
+                );
+            }
+
+            appendRemainderAndMetricsSteps(steps, cursor, {
+                startTime,
+                endTime,
                 status,
-                start: startTime,
-                end: endTime,
-                durationMs,
+                metrics,
                 detail: detail || (executed ? `Overall: ${rowCount} row(s), natural language execution.` : 'Overall: graph query generated, execution skipped.')
             });
 
@@ -3209,8 +3322,20 @@ LIMIT 25`
                 let result;
                 try { result = JSON.parse(text); } catch (_) { result = {}; }
                 if (!res.ok) {
+                    const errorMessage = getErrorMessageFromPayload(result, res.statusText || text || 'Request failed');
                     if (cypherPre) cypherPre.textContent = '(request failed – see message below)';
-                    showGraphQueryError(getErrorMessageFromPayload(result, res.statusText || text || 'Request failed'));
+                    showGraphQueryError(errorMessage);
+                    renderGraphNaturalLanguageSequence({
+                        startTime,
+                        endTime,
+                        status: 'FAILED',
+                        rowCount: 0,
+                        executed: false,
+                        queryType,
+                        metrics: result.sequence_metrics,
+                        attempts: result.generation_attempts || result.attempts,
+                        detail: `Overall: ${errorMessage}`
+                    });
                     return;
                 }
                 if (block) block.style.display = 'block';
@@ -3252,6 +3377,7 @@ LIMIT 25`
                     executed: false,
                     queryType,
                     metrics: result.sequence_metrics,
+                    attempts: result.generation_attempts || result.attempts,
                     detail: result.valid ? `Overall: ${languageLabel} generated, execution skipped.` : 'Overall: generated graph query failed validation.'
                 });
             } catch (e) {
@@ -3372,6 +3498,7 @@ LIMIT 25`
                         executed: false,
                         queryType,
                         metrics: nlResult.sequence_metrics,
+                        attempts: nlResult.generation_attempts || nlResult.attempts,
                         detail: `Overall: ${errorMessage}`
                     });
                     return;
@@ -3390,6 +3517,7 @@ LIMIT 25`
                         executed: false,
                         queryType,
                         metrics: nlResult.sequence_metrics,
+                        attempts: nlResult.generation_attempts || nlResult.attempts,
                         detail: 'Overall: generated graph query failed validation.'
                     });
                     return;
@@ -3424,6 +3552,7 @@ LIMIT 25`
                         executed: false,
                         queryType,
                         metrics: nlResult.sequence_metrics,
+                        attempts: nlResult.generation_attempts || nlResult.attempts,
                         detail: `Overall: ${languageLabel} generated, execution skipped.`
                     });
                     return;
@@ -3447,6 +3576,7 @@ LIMIT 25`
                         queryType,
                         route: nlResult.route,
                         metrics: nlResult.sequence_metrics,
+                        attempts: nlResult.generation_attempts || nlResult.attempts,
                         detail: `Overall: ${getGraphRowCount(nlResult)} row(s), natural language execution.`
                     });
                 } else {
@@ -3461,6 +3591,7 @@ LIMIT 25`
                         queryType,
                         route: nlResult.route,
                         metrics: nlResult.sequence_metrics,
+                        attempts: nlResult.generation_attempts || nlResult.attempts,
                         detail: `Overall: ${errorMessage}`
                     });
                 }
