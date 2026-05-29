@@ -1,9 +1,9 @@
 """
-Natural language to Cypher conversion.
+Natural language to graph query conversion.
 
-Schema and user query are passed to the LLM (with credentials redacted from schema);
-generated Cypher is validated and retried once on failure. Rule-based generation
-is used only when the LLM is unavailable or still invalid after retry.
+Schema and user query are passed to the LLM, with credentials redacted from the
+schema. Cypher, Gremlin, and SPARQL generation are LLM-only and retry with
+validation and review feedback before failing closed.
 """
 import copy
 import json
@@ -13,6 +13,7 @@ import re
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
+MAX_LLM_GRAPH_QUERY_RETRIES = 3
 
 # Optional OpenAI for LLM-based Cypher generation
 try:
@@ -695,6 +696,49 @@ def _extract_cypher_from_llm_response(text: str) -> Optional[str]:
     return _normalize_cypher(text.strip()) if text else None
 
 
+def _extract_graph_query_from_llm_response(text: str, language: str) -> Optional[str]:
+    """Extract a graph query from an LLM response for the requested language."""
+    if not text or not text.strip():
+        return None
+    language = (language or "cypher").strip().lower()
+    if language in {"cypher", "gql"}:
+        return _extract_cypher_from_llm_response(text)
+
+    text = text.strip()
+    fence_names = {
+        "gremlin": r"(?:gremlin|groovy)?",
+        "sparql": r"(?:sparql)?",
+    }
+    fence = fence_names.get(language, r"\w*")
+    m = re.search(rf"```{fence}\s*\n?(.*?)```", text, re.DOTALL | re.IGNORECASE)
+    if m:
+        candidate = m.group(1).strip()
+    else:
+        candidate = text
+
+    if "```" in candidate:
+        candidate = candidate.split("```", 1)[0].strip()
+
+    if language == "gremlin":
+        for line in candidate.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("g."):
+                return stripped.rstrip(";")
+        start = candidate.find("g.")
+        if start >= 0:
+            return candidate[start:].strip().rstrip(";")
+        return None
+
+    if language == "sparql":
+        upper = candidate.upper()
+        starts = [pos for token in ("PREFIX ", "SELECT ", "ASK ", "CONSTRUCT ", "DESCRIBE ") if (pos := upper.find(token)) >= 0]
+        if starts:
+            return candidate[min(starts):].strip()
+        return None
+
+    return candidate.strip() or None
+
+
 def _llm_client() -> Optional[Any]:
     """Return OpenAI client if API key is set and library available."""
     api_key = os.environ.get("OPENAI_API_KEY", "").strip()
@@ -709,13 +753,11 @@ def _llm_client() -> Optional[Any]:
     return openai.OpenAI(**client_kw)
 
 
-def _model_for_cypher() -> str:
-    """
-    Model used for natural-language-to-Cypher generation.
-    Prefer OPENAI_MODEL_CYPHER (e.g. stronger model for code), then OPENAI_MODEL, then default.
-    """
+def _model_for_graph_query() -> str:
+    """Model used for natural-language graph query generation."""
     return (
-        os.environ.get("OPENAI_MODEL_CYPHER", "").strip()
+        os.environ.get("OPENAI_MODEL_GRAPH_QUERY", "").strip()
+        or os.environ.get("OPENAI_MODEL_CYPHER", "").strip()
         or os.environ.get("OPENAI_MODEL", "").strip()
         or "gpt-4o-mini"
     )
@@ -737,36 +779,85 @@ def _temperature_kw(model: str, temperature: float) -> Dict[str, float]:
     return {"temperature": temperature}
 
 
-def _generate_cypher_with_llm(
+def _language_prompt(language: str) -> Tuple[str, str]:
+    language = (language or "cypher").strip().lower()
+    if language == "gremlin":
+        return (
+            "Gremlin",
+            (
+                "You generate a single Apache TinkerPop Gremlin Groovy traversal for a traversal source named g. "
+                "The query must evaluate to a Traversal with inspectable Bytecode. Use ONLY the graph schema provided: "
+                "vertex labels, edge labels, edge directions, and vertex attributes. Prefer read-only steps such as "
+                "g.V(), hasLabel, has, out, in, both, values, valueMap, project, select, order, by, count, and limit. "
+                "Do not use mutation steps such as addV, addE, property, drop, sideEffect, or arbitrary Groovy code. "
+                "Always include limit unless the question asks for an aggregate count. Output only one Gremlin traversal, no markdown or explanation."
+            ),
+        )
+    if language == "sparql":
+        return (
+            "SPARQL",
+            (
+                "You generate a single SPARQL 1.1 read query for Apache Jena Fuseki. Use ONLY the graph schema provided. "
+                "The RDF data uses the aml namespace: PREFIX aml: <urn:aml:>. Vertex labels are classes such as aml:Customer. "
+                "Edge labels and attributes are predicates such as aml:OWNS or aml:amount. Prefer SELECT queries unless the user asks for ASK, CONSTRUCT, or DESCRIBE. "
+                "Always include PREFIX aml: <urn:aml:> and LIMIT unless the question asks for an aggregate count. Output only the SPARQL query, no markdown or explanation."
+            ),
+        )
+    if language == "gql":
+        return (
+            "GQL",
+            (
+                "You generate a single ISO GQL-compatible read query for the Neo4j demo route. Use ONLY the graph schema provided: "
+                "vertex labels, edge labels, edge directions, and vertex attributes. Use MATCH, WHERE, RETURN, ORDER BY, and LIMIT. "
+                "Always include LIMIT. Output only the query, no markdown or explanation."
+            ),
+        )
+    return (
+        "Cypher",
+        (
+            "You generate a single openCypher (version 9) statement for PuppyGraph. "
+            "Use ONLY the graph schema provided: vertex labels (graph.vertices[].label), "
+            "edges (graph.edges[].label, fromVertex, toVertex), and vertex attributes (oneToOne.attributes, oneToOne.id.fields with alias/field). "
+            "Rules: No space after colon in node labels (e.g. (c:Customer) not (c: Customer)). "
+            "When returning a vertex id field from oneToOne.id.fields, use id(var) AS alias instead of var.alias. "
+            "Use only MATCH, RETURN, WHERE, ORDER BY, LIMIT. Integer literals for whole numbers in WHERE. "
+            "Always include LIMIT. For ordering by risk_rating (values may be high/med/low or HIGH/MEDIUM/LOW), "
+            "use ORDER BY CASE toUpper(trim(toString(var.risk_rating))) WHEN 'HIGH' THEN 3 WHEN 'MEDIUM' THEN 2 WHEN 'MED' THEN 2 WHEN 'LOW' THEN 1 ELSE 0 END DESC. "
+            "Output only the Cypher statement, no markdown or explanation."
+        ),
+    )
+
+
+def _request_graph_query_from_llm(
+    *,
+    language: str,
     natural_language_query: str,
     schema: Dict[str, Any],
+    previous_query: Optional[str] = None,
+    validation_errors: Optional[List[str]] = None,
+    review: Optional[str] = None,
 ) -> Optional[str]:
-    """
-    Generate Cypher by sending redacted schema JSON and the user query to the LLM.
-    Returns Cypher string or None if LLM is unavailable or fails.
-    """
     client = _llm_client()
     if not client:
         return None
-    model = _model_for_cypher()
+    model = _model_for_graph_query()
     redacted = _redact_schema_for_llm(schema)
     schema_json = json.dumps(redacted, indent=2)
+    label, system = _language_prompt(language)
 
-    system = (
-        "You generate a single openCypher (version 9) statement for PuppyGraph. "
-        "Use ONLY the graph schema provided: vertex labels (graph.vertices[].label), "
-        "edges (graph.edges[].label, fromVertex, toVertex), and vertex attributes (oneToOne.attributes, oneToOne.id.fields with alias/field). "
-        "Rules: No space after colon in node labels (e.g. (c:Customer) not (c: Customer)). "
-        "When returning a vertex id field from oneToOne.id.fields, use id(var) AS alias instead of var.alias. "
-        "Use only MATCH, RETURN, WHERE, ORDER BY, LIMIT. Integer literals for whole numbers in WHERE. "
-        "Always include LIMIT. For ordering by risk_rating (values may be high/med/low or HIGH/MEDIUM/LOW), "
-        "use ORDER BY CASE toUpper(trim(toString(var.risk_rating))) WHEN 'HIGH' THEN 3 WHEN 'MEDIUM' THEN 2 WHEN 'MED' THEN 2 WHEN 'LOW' THEN 1 ELSE 0 END DESC. "
-        "Output only the Cypher statement, no markdown or explanation."
-    )
+    feedback = ""
+    if previous_query:
+        feedback += f"\n\nPrevious {label} query:\n{previous_query}"
+    if validation_errors:
+        feedback += "\n\nValidation/execution feedback to fix:\n" + "\n".join(f"- {e}" for e in validation_errors[:10])
+    if review:
+        feedback += f"\n\nLLM review of the previous attempt:\n{review}"
+
     user = (
         f"Graph schema (JSON):\n{schema_json}\n\n"
-        f"Natural language question: {natural_language_query}\n\n"
-        "Cypher query:"
+        f"Natural language question: {natural_language_query}"
+        f"{feedback}\n\n"
+        f"{label} query:"
     )
     try:
         response = client.chat.completions.create(
@@ -776,69 +867,196 @@ def _generate_cypher_with_llm(
                 {"role": "user", "content": user},
             ],
             **_temperature_kw(model, 0.1),
-            **_token_limit_kw(model, 800),
+            **_token_limit_kw(model, 1200),
         )
         content = (response.choices[0].message.content or "").strip()
-        cypher = _extract_cypher_from_llm_response(content)
-        if cypher and ("MATCH" in cypher.upper() or "RETURN" in cypher.upper()):
-            return cypher
-        logger.warning("LLM response did not contain valid Cypher: %s", content[:200])
+        query = _extract_graph_query_from_llm_response(content, language)
+        if query:
+            return query
+        logger.warning("LLM response did not contain a %s query: %s", language, content[:200])
         return None
     except Exception as e:
-        logger.warning("LLM Cypher generation failed: %s", e)
+        logger.warning("LLM %s generation failed: %s", language, e)
         return None
 
 
-def _generate_cypher_with_llm_retry(
+def _review_generated_query_with_llm(
+    *,
+    language: str,
     natural_language_query: str,
     schema: Dict[str, Any],
-    validation_errors: Optional[List[str]] = None,
+    generated_query: str,
+    validation_errors: List[str],
 ) -> Optional[str]:
-    """
-    Retry Cypher generation with validation errors. Same as _generate_cypher_with_llm
-    but includes validation feedback so the LLM can fix the query.
-    """
     client = _llm_client()
     if not client:
         return None
-    model = _model_for_cypher()
+    model = _model_for_graph_query()
     redacted = _redact_schema_for_llm(schema)
     schema_json = json.dumps(redacted, indent=2)
-
+    label, _ = _language_prompt(language)
     system = (
-        "You generate openCypher (version 9) for PuppyGraph. Use ONLY the provided schema. "
-        "Fix the query so it passes validation. No space after colon in labels. Include LIMIT. "
-        "Output only the Cypher statement, no markdown."
+        f"You review a failed {label} graph query. Identify the concrete issue and give concise repair guidance. "
+        "Do not rewrite the whole query unless needed; focus on what the next generation attempt must fix."
     )
-    err_block = ""
-    if validation_errors:
-        err_block = (
-            "\n\nThe previous Cypher was rejected. Validation errors:\n"
-            + "\n".join(f"- {e}" for e in validation_errors[:8])
-            + "\n\nCorrected Cypher query:"
-        )
     user = (
         f"Graph schema (JSON):\n{schema_json}\n\n"
-        f"Natural language question: {natural_language_query}"
-        f"{err_block}"
+        f"Natural language question: {natural_language_query}\n\n"
+        f"Generated {label} query:\n{generated_query}\n\n"
+        "Failure information:\n"
+        + "\n".join(f"- {e}" for e in validation_errors[:10])
     )
-    if not err_block:
-        user += "\n\nCypher query:"
     try:
         response = client.chat.completions.create(
             model=model,
             messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
             **_temperature_kw(model, 0.1),
-            **_token_limit_kw(model, 800),
+            **_token_limit_kw(model, 600),
         )
         content = (response.choices[0].message.content or "").strip()
-        cypher = _extract_cypher_from_llm_response(content)
-        if cypher and ("MATCH" in cypher.upper() or "RETURN" in cypher.upper()):
-            return cypher
-        return None
+        return content[:2000] if content else None
     except Exception as e:
-        logger.warning("LLM retry failed: %s", e)
+        logger.warning("LLM %s review failed: %s", language, e)
         return None
+
+
+def _validate_generated_graph_query(language: str, query: str, schema: Dict[str, Any]) -> Tuple[bool, List[str]]:
+    language = (language or "cypher").strip().lower()
+    errors: List[str] = []
+    if not query or not query.strip():
+        return False, ["LLM did not return a graph query."]
+
+    if language in {"cypher", "gql"}:
+        normalized = _rewrite_return_id_fields(_normalize_cypher(query), schema)
+        valid, cypher_errors = validate_cypher_full(normalized, schema)
+        errors.extend(cypher_errors)
+    elif language == "gremlin":
+        stripped = query.strip()
+        if not stripped.startswith("g."):
+            errors.append("Gremlin query must start with traversal source 'g.'.")
+        forbidden_steps = ("addV", "addE", "drop", "sideEffect")
+        for step in forbidden_steps:
+            if re.search(rf"\b{re.escape(step)}\s*\(", stripped):
+                errors.append(f"Gremlin query uses disallowed write or side-effect step: {step}")
+    elif language == "sparql":
+        upper = query.upper()
+        if not any(token in upper for token in ("SELECT", "ASK", "CONSTRUCT", "DESCRIBE")):
+            errors.append("SPARQL query must be a read query: SELECT, ASK, CONSTRUCT, or DESCRIBE.")
+        if "WHERE" not in upper and not upper.strip().startswith("DESCRIBE"):
+            errors.append("SPARQL query should include a WHERE clause.")
+    else:
+        errors.append(f"Unsupported graph query language: {language}")
+
+    try:
+        import graph_query_analyzer
+        analyzer_url = getattr(graph_query_analyzer, "GRAPH_QUERY_ANALYZER_URL", "").strip()
+        if analyzer_url:
+            graph_query_analyzer.analyze_graph_query(
+                language=language,
+                query=query,
+                schema=schema,
+                mode="read",
+            )
+    except Exception as exc:
+        errors.append(f"Analyzer validation failed: {exc}")
+
+    return len(errors) == 0, errors
+
+
+def _generate_graph_query_with_llm_retries(
+    *,
+    language: str,
+    natural_language_query: str,
+    schema: Dict[str, Any],
+    max_retries: int = MAX_LLM_GRAPH_QUERY_RETRIES,
+) -> Dict[str, Any]:
+    language = (language or "cypher").strip().lower()
+    query_text = (natural_language_query or "").strip()
+    if not query_text:
+        return {
+            "query": "",
+            "cypher": "",
+            "analysis": {},
+            "valid": False,
+            "validation_errors": ["Empty query"],
+            "source": "llm",
+            "query_type": language,
+            "attempts": [],
+        }
+    if not os.environ.get("OPENAI_API_KEY", "").strip() or not OPENAI_AVAILABLE:
+        return {
+            "query": "",
+            "cypher": "",
+            "analysis": {},
+            "valid": False,
+            "validation_errors": [f"OPENAI_API_KEY is required for natural language to {language}."],
+            "source": "llm",
+            "query_type": language,
+            "attempts": [],
+        }
+
+    attempts: List[Dict[str, Any]] = []
+    previous_query: Optional[str] = None
+    validation_errors: List[str] = []
+    review: Optional[str] = None
+    total_attempts = 1 + max(0, min(max_retries, MAX_LLM_GRAPH_QUERY_RETRIES))
+
+    for attempt_number in range(1, total_attempts + 1):
+        generated = _request_graph_query_from_llm(
+            language=language,
+            natural_language_query=query_text,
+            schema=schema,
+            previous_query=previous_query,
+            validation_errors=validation_errors,
+            review=review,
+        )
+        if language in {"cypher", "gql"} and generated:
+            generated = _rewrite_return_id_fields(_normalize_cypher(generated), schema)
+
+        if not generated:
+            validation_errors = ["LLM did not return a graph query."]
+            attempts.append({"attempt": attempt_number, "query": "", "valid": False, "validation_errors": validation_errors})
+        else:
+            valid, validation_errors = _validate_generated_graph_query(language, generated, schema)
+            attempts.append({
+                "attempt": attempt_number,
+                "query": generated,
+                "valid": valid,
+                "validation_errors": validation_errors,
+            })
+            if valid:
+                source = "llm" if attempt_number == 1 else f"llm_retry_{attempt_number - 1}"
+                return {
+                    "query": generated,
+                    "cypher": generated,
+                    "analysis": {},
+                    "valid": True,
+                    "validation_errors": [],
+                    "source": source,
+                    "query_type": language,
+                    "attempts": attempts,
+                }
+
+        previous_query = generated or previous_query
+        if attempt_number < total_attempts:
+            review = _review_generated_query_with_llm(
+                language=language,
+                natural_language_query=query_text,
+                schema=schema,
+                generated_query=previous_query or "",
+                validation_errors=validation_errors,
+            )
+
+    return {
+        "query": previous_query or "",
+        "cypher": previous_query or "",
+        "analysis": {},
+        "valid": False,
+        "validation_errors": validation_errors,
+        "source": "llm",
+        "query_type": language,
+        "attempts": attempts,
+    }
 
 
 def _var_to_label_map(cypher: str) -> Dict[str, str]:
@@ -904,9 +1122,9 @@ def nl_to_cypher(
 ) -> Dict[str, Any]:
     """
     LLM-only pipeline: pass redacted schema JSON and user query to the LLM to generate
-    Cypher; validate against schema and property usage; retry once with validation
-    errors if invalid. No rule-based fallback. Credentials are redacted from the
-    schema before sending to the LLM.
+    Cypher; validate against schema and property usage; retry up to three times
+    with validation and review feedback if invalid. No rule-based fallback.
+    Credentials are redacted from the schema before sending to the LLM.
 
     Returns:
         {
@@ -917,104 +1135,13 @@ def nl_to_cypher(
             "source": "llm",
         }
     """
-    query = (natural_language_query or "").strip()
-    if not query:
-        return {
-            "cypher": "",
-            "analysis": {},
-            "valid": False,
-            "validation_errors": ["Empty query"],
-            "source": "llm",
-        }
-
-    cypher: Optional[str] = None
-    analysis: Dict[str, Any] = {"entities": [], "relationships": [], "amount_filter": None, "limit": None}
-    validation_errors: List[str] = []
-
-    if not os.environ.get("OPENAI_API_KEY", "").strip() or not OPENAI_AVAILABLE:
-        return {
-            "cypher": "",
-            "analysis": analysis,
-            "valid": False,
-            "validation_errors": ["OPENAI_API_KEY is required for natural language to Cypher."],
-            "source": "llm",
-        }
-
-    llm_cypher = _generate_cypher_with_llm(query, schema)
-    if not llm_cypher:
-        # Try rule-based fallback before failing
-        try:
-            rule_analysis = analyze_natural_language(query, schema)
-            rule_cypher = generate_cypher(rule_analysis, schema)
-            rule_cypher = _rewrite_return_id_fields(_normalize_cypher(rule_cypher), schema)
-            rule_valid, _ = validate_cypher_full(rule_cypher, schema)
-            if rule_valid:
-                return {
-                    "cypher": rule_cypher,
-                    "analysis": rule_analysis,
-                    "valid": True,
-                    "validation_errors": [],
-                    "source": "rule_based",
-                }
-        except Exception as e:
-            logger.debug("Rule-based fallback after LLM failure: %s", e)
-        return {
-            "cypher": "",
-            "analysis": analysis,
-            "valid": False,
-            "validation_errors": ["LLM did not return valid Cypher."],
-            "source": "llm",
-        }
-
-    cypher = _rewrite_return_id_fields(_normalize_cypher(llm_cypher), schema)
-    valid_full, validation_errors = validate_cypher_full(cypher, schema)
-    if valid_full:
-        return {
-            "cypher": cypher,
-            "analysis": analysis,
-            "valid": True,
-            "validation_errors": [],
-            "source": "llm",
-        }
-
-    retry_cypher = _generate_cypher_with_llm_retry(query, schema, validation_errors)
-    if retry_cypher:
-        cypher = _rewrite_return_id_fields(_normalize_cypher(retry_cypher), schema)
-        valid_retry, retry_errors = validate_cypher_full(cypher, schema)
-        if valid_retry:
-            return {
-                "cypher": cypher,
-                "analysis": analysis,
-                "valid": True,
-                "validation_errors": [],
-                "source": "llm",
-            }
-        validation_errors = retry_errors
-
-    # Rule-based fallback when LLM failed or returned invalid Cypher
-    try:
-        rule_analysis = analyze_natural_language(query, schema)
-        rule_cypher = generate_cypher(rule_analysis, schema)
-        rule_cypher = _rewrite_return_id_fields(_normalize_cypher(rule_cypher), schema)
-        rule_valid, rule_errors = validate_cypher_full(rule_cypher, schema)
-        if rule_valid:
-            return {
-                "cypher": rule_cypher,
-                "analysis": rule_analysis,
-                "valid": True,
-                "validation_errors": [],
-                "source": "rule_based",
-            }
-    except Exception as e:
-        logger.debug("Rule-based Cypher fallback failed: %s", e)
-
-    return {
-        "cypher": cypher or "",
-        "analysis": analysis,
-        "valid": False,
-        "validation_errors": validation_errors,
-        "source": "llm",
-    }
+    result = _generate_graph_query_with_llm_retries(
+        language="cypher",
+        natural_language_query=natural_language_query,
+        schema=schema,
+    )
+    result["cypher"] = result.get("query", result.get("cypher", ""))
+    return result
 
 
 def nl_to_graph_query(
@@ -1025,119 +1152,22 @@ def nl_to_graph_query(
     """
     Generate a graph query for the selected route.
 
-    Cypher and GQL share the existing Cypher generator. Gremlin and SPARQL use
-    schema-derived rule-based generation so those demo routes work without adding
-    new model prompts in the first multi-backend version.
+    Cypher, Gremlin, and SPARQL use LLM generation with validation/review retries.
+    GQL uses the same LLM retry flow with a GQL-specific prompt.
     """
     language_normalized = (language or "cypher").strip().lower()
-    if language_normalized in {"cypher", "gql"}:
-        result = nl_to_cypher(natural_language_query, schema)
-        generated = result.get("cypher", "")
-        result["query"] = generated
-        result["query_type"] = language_normalized
-        if language_normalized == "gql" and generated:
-            result["source"] = f"{result.get('source', 'llm')}_gql_compatible"
-        return result
-
-    query_text = (natural_language_query or "").strip()
-    if not query_text:
+    if language_normalized not in {"cypher", "gremlin", "sparql", "gql"}:
         return {
             "query": "",
             "cypher": "",
             "analysis": {},
             "valid": False,
-            "validation_errors": ["Empty query"],
-            "source": "rule_based",
-            "query_type": language_normalized,
-        }
-
-    analysis = analyze_natural_language(query_text, schema)
-    if language_normalized == "gremlin":
-        generated = generate_gremlin(analysis, schema)
-    elif language_normalized == "sparql":
-        generated = generate_sparql(analysis, schema)
-    else:
-        return {
-            "query": "",
-            "cypher": "",
-            "analysis": analysis,
-            "valid": False,
             "validation_errors": [f"Unsupported graph query language: {language}"],
-            "source": "rule_based",
+            "source": "llm",
             "query_type": language_normalized,
         }
-
-    return {
-        "query": generated,
-        "cypher": generated,
-        "analysis": analysis,
-        "valid": bool(generated),
-        "validation_errors": [] if generated else ["Could not generate graph query from schema."],
-        "source": "rule_based",
-        "query_type": language_normalized,
-    }
-
-
-def generate_gremlin(analysis: Dict[str, Any], schema: Dict[str, Any]) -> str:
-    edge_map = get_edges_by_label(schema)
-    entities = analysis.get("entities", [])
-    relationships = analysis.get("relationships", [])
-    limit = int(analysis.get("limit") or 25)
-    chain = _build_path_chain(entities, relationships, edge_map)
-    if not chain:
-        label = entities[0] if entities else (sorted(get_vertex_labels(schema))[0] if get_vertex_labels(schema) else "")
-        return f"g.V().hasLabel('{label}').limit({limit}).valueMap(true)" if label else "g.V().limit(0)"
-
-    first_label = chain[0][0]
-    traversal = f"g.V().hasLabel('{first_label}')"
-    for _, edge, _ in chain:
-        if edge:
-            traversal += f".out('{edge}')"
-    traversal += f".limit({limit}).valueMap(true)"
-    return traversal
-
-
-def generate_sparql(analysis: Dict[str, Any], schema: Dict[str, Any]) -> str:
-    edge_map = get_edges_by_label(schema)
-    entities = analysis.get("entities", [])
-    relationships = analysis.get("relationships", [])
-    limit = int(analysis.get("limit") or 25)
-    chain = _build_path_chain(entities, relationships, edge_map)
-    lines = ["PREFIX aml: <urn:aml:>", "SELECT *", "WHERE {"]
-
-    if not chain:
-        label = entities[0] if entities else (sorted(get_vertex_labels(schema))[0] if get_vertex_labels(schema) else "")
-        if not label:
-            return "PREFIX aml: <urn:aml:>\nSELECT * WHERE { ?s ?p ?o } LIMIT 0"
-        lines.append(f"  ?{_sparql_var(label)} a aml:{label} .")
-    else:
-        seen = set()
-        for from_v, edge, to_v in chain:
-            from_var = _sparql_var(from_v)
-            if from_v not in seen:
-                lines.append(f"  ?{from_var} a aml:{from_v} .")
-                seen.add(from_v)
-            if edge:
-                to_var = _sparql_var(to_v)
-                lines.append(f"  ?{from_var} aml:{edge} ?{to_var} .")
-                if to_v not in seen:
-                    lines.append(f"  ?{to_var} a aml:{to_v} .")
-                    seen.add(to_v)
-
-    amount_filter = analysis.get("amount_filter")
-    if amount_filter and amount_filter.get("attribute") and amount_filter.get("vertex"):
-        var = _sparql_var(amount_filter["vertex"])
-        attr = amount_filter["attribute"]
-        value = amount_filter["value"]
-        op = amount_filter.get("op", ">")
-        lines.append(f"  ?{var} aml:{attr} ?{attr} .")
-        lines.append(f"  FILTER (?{attr} {op} {value})")
-
-    lines.append("}")
-    lines.append(f"LIMIT {limit}")
-    return "\n".join(lines)
-
-
-def _sparql_var(label: str) -> str:
-    name = re.sub(r"[^A-Za-z0-9_]", "", label or "item")
-    return name[:1].lower() + name[1:] if name else "item"
+    return _generate_graph_query_with_llm_retries(
+        language=language_normalized,
+        natural_language_query=natural_language_query,
+        schema=schema,
+    )
