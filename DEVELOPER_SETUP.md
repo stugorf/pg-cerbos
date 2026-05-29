@@ -34,7 +34,7 @@ cd pg-cerbos
 
 ```bash
 # Copy environment configuration
-cp env.example .env
+cp .env.example .env
 
 # Edit .env if you need to customize settings
 # (Most defaults should work for development)
@@ -308,4 +308,4 @@ After successful setup:
 2. Try different user roles and permissions
 3. Execute sample queries
 4. Modify policies to see how authorization works
-5. Add your own data sources or policies 
+5. Add your own data sources or policies
