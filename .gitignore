@@ -41,6 +41,7 @@ docs/AML_USER_CREDENTIALS.md
 # Java/JAR files
 *.jar
 *.class
+target/
 
 # Logs
 *.log
@@ -61,14 +62,33 @@ Thumbs.db
 
 # Test coverage
 .coverage
+.coverage.*
+coverage.xml
 htmlcov/
 .pytest_cache/
 .tox/
 .hypothesis/
+.mypy_cache/
+.ruff_cache/
+.pyre/
 
 # Temporary files
 *.tmp
 *.temp
 *.bak
+*.orig
+*.rej
 *.swp
 *~
+
+# Local compose overrides
+compose.override.yml
+docker-compose.override.yml
+
+# Local agent/Codex artifacts
+.codex/
+.codex-*
+codex-*.md
+AGENTS.local.md
+agents.local.md
+.agents/

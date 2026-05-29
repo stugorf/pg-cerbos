@@ -360,7 +360,7 @@ The system provides **three approaches** for handling unauthorized field access:
 # 1. Clone & setup
 git clone https://github.com/stugorf/pg-cerbos.git
 cd pg-cerbos
-cp env.example .env
+cp .env.example .env
 
 # 2. Complete initialization (recommended)
 just init
